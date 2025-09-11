@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🐕 Cerberus Watchdog: On-Chain AI Threat Detection
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -202,3 +203,6 @@ Built for **VietBUILD Hackathon** - demonstrating innovative blockchain security
 ---
 
 **⚠️ Disclaimer**: This is a proof-of-concept built for hackathon purposes. Use in production environments requires additional security audits and testing.
+=======
+# CERBERUS
+>>>>>>> 511bbbf98f4bd352074e35e017d23afc642eba37
