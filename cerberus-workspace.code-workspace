@@ -1,0 +1,90 @@
+{
+  "folders": [
+    {
+      "name": "🏠 Root",
+      "path": "."
+    },
+    {
+      "name": "📄 Smart Contracts",
+      "path": "./contracts"
+    },
+    {
+      "name": "🤖 AI Sentinel",
+      "path": "./services/ai-sentinel"
+    },
+    {
+      "name": "👁️ Mempool Monitor",
+      "path": "./services/mempool-monitor"
+    },
+    {
+      "name": "🎨 Frontend dApp",
+      "path": "./apps/frontend"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": true
+    },
+    "typescript.preferences.importModuleSpecifier": "relative",
+    "solidity-va.formatOnSave": true,
+    "python.defaultInterpreterPath": "./services/ai-sentinel/venv/Scripts/python.exe",
+    "files.associations": {
+      "*.sol": "solidity"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "juanblanco.solidity",
+      "ms-python.python",
+      "bradlc.vscode-tailwindcss",
+      "esbenp.prettier-vscode",
+      "ms-vscode.vscode-typescript-next"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "🔨 Compile Contracts",
+        "type": "shell",
+        "command": "npx",
+        "args": ["hardhat", "compile"],
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder}/contracts"
+        }
+      },
+      {
+        "label": "🚀 Deploy to U2U Testnet",
+        "type": "shell",
+        "command": "npx",
+        "args": ["hardhat", "run", "scripts/deploy.js", "--network", "u2u_testnet"],
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder}/contracts"
+        }
+      },
+      {
+        "label": "🤖 Train AI Model",
+        "type": "shell",
+        "command": "python",
+        "args": ["train.py"],
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder}/services/ai-sentinel"
+        }
+      },
+      {
+        "label": "🔥 Start AI API",
+        "type": "shell",
+        "command": "python",
+        "args": ["app.py"],
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder}/services/ai-sentinel"
+        }
+      }
+    ]
+  }
+}

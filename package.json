@@ -1,0 +1,49 @@
+{
+  "name": "cerberus-watchdog",
+  "version": "1.0.0",
+  "description": "AI-powered real-time threat detection system for U2U Network",
+  "author": "laudzakusuma260805@gmail.com",
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "contracts"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm run dev:ai\" \"pnpm run dev:monitor\" \"pnpm run dev:frontend\"",
+    "dev:ai": "cd services/ai-sentinel && python app.py",
+    "dev:monitor": "cd services/mempool-monitor && node monitor.js",
+    "dev:frontend": "cd apps/frontend && pnpm dev",
+    "build": "pnpm run build:contracts && pnpm run build:frontend",
+    "build:contracts": "cd contracts && pnpm compile",
+    "build:frontend": "cd apps/frontend && pnpm build",
+    "deploy:contracts": "cd contracts && pnpm deploy:testnet",
+    "test": "pnpm run test:contracts",
+    "test:contracts": "cd contracts && pnpm test",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "setup": "pnpm install && pnpm run setup:ai",
+    "setup:ai": "cd services/ai-sentinel && python -m venv venv && source venv/bin/activate && pip install flask"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "blockchain",
+    "ai",
+    "security",
+    "u2u-network",
+    "threat-detection",
+    "defi",
+    "hackathon",
+    "real-time-monitoring"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/cerberus-watchdog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/cerberus-watchdog/issues"
+  },
+  "homepage": "https://github.com/yourusername/cerberus-watchdog#readme"
+}
