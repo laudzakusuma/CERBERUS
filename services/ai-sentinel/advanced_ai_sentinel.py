@@ -1,16 +1,12 @@
 import json
 import hashlib
 import asyncio
-import aiohttp
 import numpy as np
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass, asdict
 from flask import Flask, request, jsonify, g
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from functools import wraps
 import threading
 import time
 import logging
@@ -23,12 +19,29 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Rate limiting
-limiter = Limiter(
-    app,
-    key_func=get_remote_address,
-    default_limits=["1000 per hour", "100 per minute"]
-)
+# Simple rate limiting without external dependencies
+request_counts = defaultdict(lambda: {'count': 0, 'reset_time': time.time() + 3600})
+
+def rate_limit(max_requests=100, window=3600):
+    def decorator(f):
+        def wrapper(*args, **kwargs):
+            client_ip = request.environ.get('REMOTE_ADDR', '127.0.0.1')
+            current_time = time.time()
+            
+            # Reset counter if window expired
+            if current_time > request_counts[client_ip]['reset_time']:
+                request_counts[client_ip] = {'count': 0, 'reset_time': current_time + window}
+            
+            # Check rate limit
+            if request_counts[client_ip]['count'] >= max_requests:
+                return jsonify({'error': 'Rate limit exceeded'}), 429
+            
+            request_counts[client_ip]['count'] += 1
+            return f(*args, **kwargs)
+        
+        wrapper.__name__ = f.__name__
+        return wrapper
+    return decorator
 
 @dataclass
 class ThreatSignature:
@@ -348,11 +361,11 @@ class MultiModelEnsemble:
         confidences = [pred.confidence for pred in predictions]
         
         return {
-            'confidence_std': np.std(confidences),
+            'confidence_std': float(np.std(confidences)),
             'confidence_range': max(confidences) - min(confidences),
             'high_confidence_count': sum(1 for c in confidences if c > 80),
             'model_agreement': len(set(pred.threat_category for pred in predictions)) == 1,
-            'avg_confidence': np.mean(confidences),
+            'avg_confidence': float(np.mean(confidences)),
             'feature_complexity_score': self._calculate_feature_complexity(features)
         }
     
@@ -472,8 +485,8 @@ class AnomalyDetector:
             # Update statistics
             stats['count'] += 1
             stats['mean'] = (stats['mean'] * (stats['count'] - 1) + value) / stats['count']
-            stats['std'] = np.sqrt(((stats['std'] ** 2) * (stats['count'] - 1) + 
-                                   (value - stats['mean']) ** 2) / stats['count'])
+            variance = ((stats['std'] ** 2) * (stats['count'] - 1) + (value - stats['mean']) ** 2) / stats['count']
+            stats['std'] = np.sqrt(variance)
         
         return ModelPrediction(
             model_name='anomaly_detector',
@@ -680,7 +693,7 @@ def health_check():
     })
 
 @app.route('/predict', methods=['POST'])
-@limiter.limit("100 per minute")
+@rate_limit(max_requests=100, window=60)
 def predict():
     """Advanced prediction endpoint with ensemble modeling"""
     data = request.get_json()
@@ -741,7 +754,6 @@ def get_analytics():
     """Get advanced analytics and model performance"""
     try:
         with db_manager._get_connection() as conn:
-            # Get recent threat statistics
             recent_stats = conn.execute('''
                 SELECT 
                     COUNT(*) as total_reports,

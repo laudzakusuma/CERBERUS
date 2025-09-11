@@ -1,77 +1,66 @@
 ﻿import { ethers } from "hardhat";
 
 async function main() {
-  console.log("🚀 Deploying Cerberus Advanced Threat Detection System...");
-  
-  // Get the deployer account
+  console.log("🚀 Starting Cerberus Advanced Contract Deployment...");
   const [deployer] = await ethers.getSigners();
   console.log("📝 Deploying contracts with account:", deployer.address);
-  
-  // Check deployer balance
   const balance = await deployer.provider.getBalance(deployer.address);
-  console.log("💰 Deployer balance:", ethers.formatEther(balance), "U2U");
+  console.log("💰 Account balance:", ethers.formatEther(balance), "U2U");
   
-  // Deploy CerberusAlerts contract
-  console.log("\n📦 Deploying CerberusAlerts contract...");
-  const CerberusAlerts = await ethers.getContractFactory("CerberusAlerts");
-  const cerberusAlerts = await CerberusAlerts.deploy();
-  
-  await cerberusAlerts.waitForDeployment();
-  const contractAddress = await cerberusAlerts.getAddress();
-  
-  console.log("✅ CerberusAlerts deployed to:", contractAddress);
-  
-  // Initialize the contract with some default ML model
-  console.log("\n🧠 Setting up initial ML model...");
-  const initialModelHash = ethers.keccak256(ethers.toUtf8Bytes("cerberus-ai-v1.0.0"));
-  
-  try {
-    const deployModelTx = await cerberusAlerts.deployMLModel(
-      initialModelHash,
-      "v1.0.0",
-      85, // 85% accuracy
-      "IsolationForest",
-      2000 // Training data size
-    );
-    await deployModelTx.wait();
-    console.log("✅ Initial ML model registered with hash:", initialModelHash);
-  } catch (error) {
-    console.log("⚠️ ML model setup skipped (may already exist)");
+  if (balance < ethers.parseEther("0.1")) {
+    throw new Error("❌ Insufficient balance for deployment. Need at least 0.1 U2U");
   }
   
-  // Grant AI_REPORTER_ROLE to deployer for testing
-  console.log("\n🔑 Setting up roles...");
-  const AI_REPORTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("AI_REPORTER_ROLE"));
-  const VALIDATOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("VALIDATOR_ROLE"));
+  console.log("📦 Deploying CerberusAdvanced contract...");
+  const CerberusAdvanced = await ethers.getContractFactory("CerberusAdvanced");
+  const deploymentData = await CerberusAdvanced.getDeployTransaction();
+  const gasEstimate = await deployer.estimateGas(deploymentData);
+  console.log("⛽ Estimated gas for deployment:", gasEstimate.toString());
+  const cerberusAdvanced = await CerberusAdvanced.deploy({
+    gasLimit: gasEstimate * 120n / 100n,
+    gasPrice: ethers.parseUnits("15", "gwei")
+  });
   
-  try {
-    await cerberusAlerts.grantRole(AI_REPORTER_ROLE, deployer.address);
-    await cerberusAlerts.grantRole(VALIDATOR_ROLE, deployer.address);
-    console.log("✅ Roles granted to deployer for testing");
-  } catch (error) {
-    console.log("⚠️ Roles may already be granted");
-  }
+  console.log("⏳ Waiting for deployment transaction...");
+  await cerberusAdvanced.waitForDeployment();
   
-  // Display contract information
+  const contractAddress = await cerberusAdvanced.getAddress();
+  console.log("✅ CerberusAdvanced deployed to:", contractAddress);
+  const initialModelHash = ethers.keccak256(ethers.toUtf8Bytes("cerberus-ai-ensemble-v2.0.0-advanced"));
+  console.log("🤖 Deploying initial ML model...");
+  
+  const deployModelTx = await cerberusAdvanced.deployMLModelWithGovernance(
+    initialModelHash,
+    "v2.0.0-advanced",
+    "ensemble",
+    85,
+    82,
+    88,
+    10000,
+    "precision:82,recall:88,f1:85",
+    []
+  );
+  
+  await deployModelTx.wait();
+  console.log("✅ Initial ML model deployed with hash:", initialModelHash);
+  console.log("🔍 Verifying deployment...");
+  const contractStats = await cerberusAdvanced.getContractStats();
+  console.log("📊 Contract initialized with stats:", {
+    totalAlerts: contractStats[0].toString(),
+    confirmedAlerts: contractStats[1].toString(),
+    totalStaked: ethers.formatEther(contractStats[2]),
+    totalRewards: ethers.formatEther(contractStats[3])
+  });
+  
   console.log("\n📊 Contract Information:");
   console.log("==========================================");
   console.log("Contract Address:", contractAddress);
   console.log("Deployer Address:", deployer.address);
   console.log("Network:", (await deployer.provider.getNetwork()).name);
   console.log("Block Number:", await deployer.provider.getBlockNumber());
-  console.log("Gas Price:", ethers.formatUnits(await deployer.provider.getFeeData().then(f => f.gasPrice || 0n), "gwei"), "gwei");
   
-  // Get contract stats
-  try {
-    const stats = await cerberusAlerts.getContractStats();
-    console.log("\n📈 Initial Contract Stats:");
-    console.log("Total Alerts:", stats[0].toString());
-    console.log("Total Confirmed:", stats[1].toString());
-    console.log("Total Staked:", ethers.formatEther(stats[2]), "U2U");
-    console.log("Total Rewards:", ethers.formatEther(stats[3]), "U2U");
-  } catch (error) {
-    console.log("⚠️ Could not fetch initial stats");
-  }
+  const feeData = await deployer.provider.getFeeData();
+  console.log("Gas Price:", ethers.formatUnits(feeData.gasPrice || 0n, "gwei"), "gwei");
   
   console.log("\n🎉 Deployment completed successfully!");
   console.log("\n📝 Next Steps:");
@@ -80,8 +69,6 @@ async function main() {
   console.log("3. Start your AI Sentinel API service");
   console.log("4. Start your Mempool Monitor service");
   console.log("5. Deploy your frontend with the contract address");
-  
-  // Verification note
   console.log("\n🔍 Contract Verification:");
   console.log("To verify on U2U Explorer, use:");
   console.log(`npx hardhat verify --network u2u_testnet ${contractAddress}`);
@@ -93,7 +80,6 @@ async function main() {
   };
 }
 
-// Execute deployment
 main()
   .then((result) => {
     console.log("\n✅ Deployment result:", result);

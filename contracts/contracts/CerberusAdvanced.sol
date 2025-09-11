@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "./MessageHashUtils.sol";
 
 /**
  * @title CerberusAdvanced - Enterprise-Grade Threat Detection System
@@ -14,7 +13,6 @@ import "./MessageHashUtils.sol";
  */
 contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
     using ECDSA for bytes32;
-    using MessageHashUtils for bytes32;
 
     bytes32 public constant AI_ORACLE_ROLE = keccak256("AI_ORACLE_ROLE");
     bytes32 public constant VALIDATOR_ROLE = keccak256("VALIDATOR_ROLE");
@@ -29,6 +27,15 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         PHISHING_CONTRACT, HONEY_POT, GOVERNANCE_ATTACK,
         ORACLE_MANIPULATION, BRIDGE_EXPLOIT, PRIVATE_KEY_COMPROMISE,
         SOCIAL_ENGINEERING, ZERO_DAY_EXPLOIT, PROTOCOL_DRAIN
+    }
+
+    struct ValidatorVote {
+        bool hasVoted;
+        bool isConfirming;
+        uint256 confidence;
+        string reasoning;
+        uint256 timestamp;
+        uint256 stakeAmount;
     }
 
     struct ThreatAlert {
@@ -50,20 +57,10 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         uint256 disputes;
         uint256 escalations;
         address[] validators;
-        mapping(address => ValidatorVote) validatorVotes;
         uint256 economicImpact;
         uint256 networkRisk;
         bytes32[] relatedAlerts;
-        MLModelInfo modelUsed;
-    }
-
-    struct ValidatorVote {
-        bool hasVoted;
-        bool isConfirming;
-        uint256 confidence;
-        string reasoning;
-        uint256 timestamp;
-        uint256 stakeAmount;
+        bytes32 modelHash;
     }
 
     struct ReputationProfile {
@@ -77,8 +74,6 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         bool isBlacklisted;
         uint256 lastActivity;
         string profileMetadata;
-        mapping(ThreatCategory => uint256) categoryExpertise;
-        mapping(ThreatLevel => uint256) levelAccuracy;
         uint256 consecutiveCorrect;
         uint256 validationPower;
         uint256 reputationDecay;
@@ -102,7 +97,6 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         bytes32[] predecessors;
         uint256 performanceScore;
         uint256 usageCount;
-        mapping(address => bool) authorizedOracles;
     }
 
     struct IncentivePool {
@@ -111,8 +105,6 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         uint256 validatorShare;
         uint256 guardianShare;
         uint256 burnAmount;
-        mapping(ThreatCategory => uint256) categoryMultipliers;
-        mapping(ThreatLevel => uint256) levelMultipliers;
     }
 
     struct NetworkThreatMetrics {
@@ -122,9 +114,6 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         uint256 falsePositiveRate;
         uint256 threatVelocity;
         uint256 networkRiskScore;
-        mapping(uint256 => uint256) dailyThreatCounts;
-        mapping(ThreatCategory => uint256) categoryDistribution;
-        mapping(address => uint256) addressRiskScores;
         uint256 lastUpdated;
     }
 
@@ -137,6 +126,7 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
     uint256 public constant REPUTATION_DECAY_RATE = 5;
 
     mapping(uint256 => ThreatAlert) public threatAlerts;
+    mapping(uint256 => mapping(address => ValidatorVote)) public validatorVotes;
     mapping(address => ReputationProfile) public reputationProfiles;
     mapping(bytes32 => MLModelInfo) public mlModels;
     mapping(bytes32 => bool) public reportedTransactions;
@@ -147,6 +137,14 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
     mapping(bytes32 => bytes32[]) public threatCorrelations;
     mapping(address => uint256) public validatorPower;
     mapping(uint256 => uint256) public alertPriority;
+    mapping(ThreatCategory => uint256) public categoryMultipliers;
+    mapping(ThreatLevel => uint256) public levelMultipliers;
+    mapping(uint256 => uint256) public dailyThreatCounts;
+    mapping(ThreatCategory => uint256) public categoryDistribution;
+    mapping(address => uint256) public addressRiskScores;
+    mapping(address => mapping(ThreatCategory => uint256)) public categoryExpertise;
+    mapping(address => mapping(ThreatLevel => uint256)) public levelAccuracy;
+    mapping(bytes32 => mapping(address => bool)) public authorizedOracles;
 
     IncentivePool public incentivePool;
     NetworkThreatMetrics public networkMetrics;
@@ -199,7 +197,7 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         uint256 totalStake
     );
 
-    constructor(address _token) {
+    constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(AI_ORACLE_ROLE, msg.sender);
         _grantRole(VALIDATOR_ROLE, msg.sender);
@@ -215,12 +213,12 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         incentivePool.validatorShare = 35;
         incentivePool.guardianShare = 15;
         incentivePool.burnAmount = 10;
-        incentivePool.categoryMultipliers[ThreatCategory.ZERO_DAY_EXPLOIT] = 300;
-        incentivePool.categoryMultipliers[ThreatCategory.PROTOCOL_DRAIN] = 250;
-        incentivePool.categoryMultipliers[ThreatCategory.BRIDGE_EXPLOIT] = 200;
-        incentivePool.levelMultipliers[ThreatLevel.CATASTROPHIC] = 500;
-        incentivePool.levelMultipliers[ThreatLevel.CRITICAL] = 300;
-        incentivePool.levelMultipliers[ThreatLevel.HIGH] = 150;
+        categoryMultipliers[ThreatCategory.ZERO_DAY_EXPLOIT] = 300;
+        categoryMultipliers[ThreatCategory.PROTOCOL_DRAIN] = 250;
+        categoryMultipliers[ThreatCategory.BRIDGE_EXPLOIT] = 200;
+        levelMultipliers[ThreatLevel.CATASTROPHIC] = 500;
+        levelMultipliers[ThreatLevel.CRITICAL] = 300;
+        levelMultipliers[ThreatLevel.HIGH] = 150;
     }
 
     function _initializeThresholds() internal {
@@ -275,6 +273,7 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         alert.economicImpact = _economicImpact;
         alert.relatedAlerts = _relatedAlerts;
         alert.networkRisk = _calculateNetworkRisk(_level, _category, _economicImpact);
+        alert.modelHash = _modelHash;
 
         mlModels[_modelHash].usageCount++;
 
@@ -283,7 +282,6 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         transactionAlerts[_txHash].push(alertId);
 
         _updateReporterReputation(msg.sender, _category, _level);
-
         _updateNetworkMetrics(_category, _level);
 
         alertPriority[alertId] = _calculatePriority(_level, _severityScore, _economicImpact);
@@ -306,16 +304,16 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         bool _isConfirming,
         uint256 _confidence,
         string memory _reasoning,
-        bytes memory _evidence
+        bytes memory /* _evidence */
     ) external payable onlyRole(VALIDATOR_ROLE) whenNotPaused nonReentrant {
         ThreatAlert storage alert = threatAlerts[_alertId];
         require(alert.status == AlertStatus.PENDING, "Alert not pending");
-        require(!alert.validatorVotes[msg.sender].hasVoted, "Already voted");
+        require(!validatorVotes[_alertId][msg.sender].hasVoted, "Already voted");
         require(msg.value >= MIN_STAKE / 2, "Insufficient validator stake");
         require(block.timestamp <= alert.timestamp + DISPUTE_WINDOW, "Window closed");
         require(alert.validators.length < MAX_VALIDATORS_PER_ALERT, "Max validators");
 
-        alert.validatorVotes[msg.sender] = ValidatorVote({
+        validatorVotes[_alertId][msg.sender] = ValidatorVote({
             hasVoted: true,
             isConfirming: _isConfirming,
             confidence: _confidence,
@@ -367,11 +365,12 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         model.accuracy = _accuracy;
         model.precision = _precision;
         model.recall = _recall;
-        model.f1Score = (2 * _precision * _recall) / (_precision + _recall);
+        model.f1Score = (_precision + _recall > 0) ? (2 * _precision * _recall) / (_precision + _recall) : 0;
         model.deployedAt = block.timestamp;
         model.deployer = msg.sender;
         model.isActive = true;
         model.trainingDataSize = _trainingDataSize;
+        model.validationDataSize = _trainingDataSize / 4; // Default 25% validation
         model.trainingMetrics = _trainingMetrics;
         model.predecessors = _predecessors;
         model.performanceScore = (_accuracy + _precision + _recall + model.f1Score) / 4;
@@ -400,21 +399,26 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
     }
 
     function _updateReporterReputation(
-        address _reporter,
+    address _reporter,
         ThreatCategory _category,
-        ThreatLevel _level
+        ThreatLevel level
     ) internal {
         ReputationProfile storage profile = reputationProfiles[_reporter];
         profile.totalReports++;
-        profile.categoryExpertise[_category]++;
+        categoryExpertise[_reporter][_category]++;
         profile.lastActivity = block.timestamp;
-        
+
+        if (level == ThreatLevel.HIGH) {
+            profile.totalReports += 2;
+        }
+
         _applyReputationDecay(_reporter);
     }
 
+
     function _updateValidatorReputation(address _validator, ThreatCategory _category) internal {
         ReputationProfile storage profile = reputationProfiles[_validator];
-        profile.categoryExpertise[_category]++;
+        categoryExpertise[_validator][_category]++;
         profile.lastActivity = block.timestamp;
         validatorPower[_validator] = _calculateValidatorPower(_validator);
     }
@@ -476,20 +480,20 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         emit ThreatEscalated(_alertId, alert.level, address(this), "Auto-escalated catastrophic threat");
     }
 
-    function _updateNetworkMetrics(ThreatCategory _category, ThreatLevel _level) internal {
+    function _updateNetworkMetrics(ThreatCategory _category, ThreatLevel /* _level */) internal {
         networkMetrics.totalThreats++;
-        networkMetrics.categoryDistribution[_category]++;
+        categoryDistribution[_category]++;
         networkMetrics.lastUpdated = block.timestamp;
         
         uint256 today = block.timestamp / 1 days;
-        networkMetrics.dailyThreatCounts[today]++;
+        dailyThreatCounts[today]++;
     }
 
     function _distributeRewards(uint256 _alertId) internal {
         ThreatAlert storage alert = threatAlerts[_alertId];
         uint256 totalReward = alert.stakeAmount;
-        uint256 categoryMultiplier = incentivePool.categoryMultipliers[alert.category];
-        uint256 levelMultiplier = incentivePool.levelMultipliers[alert.level];
+        uint256 categoryMultiplier = categoryMultipliers[alert.category];
+        uint256 levelMultiplier = levelMultipliers[alert.level];
         
         if (categoryMultiplier > 0) {
             totalReward = (totalReward * (100 + categoryMultiplier)) / 100;
@@ -507,7 +511,7 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         if (alert.validators.length > 0) {
             uint256 perValidator = validatorReward / alert.validators.length;
             for (uint256 i = 0; i < alert.validators.length; i++) {
-                if (alert.validatorVotes[alert.validators[i]].isConfirming) {
+                if (validatorVotes[_alertId][alert.validators[i]].isConfirming) {
                     (bool validatorSuccess, ) = payable(alert.validators[i]).call{value: perValidator}("");
                     require(validatorSuccess, "Validator payment failed");
                 }
@@ -572,12 +576,26 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         validationPowerScore = validatorPower[_validator];
         
         for (uint256 i = 0; i < 16; i++) {
-            if (profile.categoryExpertise[ThreatCategory(i)] > 0) {
+            if (categoryExpertise[_validator][ThreatCategory(i)] > 0) {
                 categoryExpertiseCount++;
             }
         }
         
         averageConfidence = profile.accuracyScore;
+    }
+
+    function getContractStats() external view returns (
+        uint256 totalAlerts,
+        uint256 confirmedAlerts,
+        uint256 totalStaked,
+        uint256 totalRewards
+    ) {
+        return (
+            _alertCounter,
+            networkMetrics.confirmedThreats,
+            incentivePool.totalRewards,
+            address(this).balance
+        );
     }
 
     function emergencyPause() external onlyRole(GUARDIAN_ROLE) {
@@ -595,5 +613,9 @@ contract CerberusAdvanced is AccessControl, ReentrancyGuard, Pausable {
         alert.escalations++;
         
         emit ThreatEscalated(_alertId, alert.level, msg.sender, _reason);
+    }
+
+    receive() external payable {
+        incentivePool.totalRewards += msg.value;
     }
 }

@@ -1,15 +1,65 @@
-// Temporal correlation rules
+const { ethers } = require('ethers');
+const fetch = require('node-fetch');
+const EventEmitter = require('events');
+const fs = require('fs').promises;
+const path = require('path');
+const CONFIG = {
+    U2U_RPC_WSS: 'wss://rpc-nebulas-testnet.uniultra.xyz',
+    U2U_RPC_HTTP: 'https://rpc-nebulas-testnet.uniultra.xyz',
+    AI_API_URL: process.env.AI_API_URL || 'http://127.0.0.1:5001/predict',
+    MONITOR_PRIVATE_KEY: process.env.MONITOR_PRIVATE_KEY || 'a29a6848264f0ae2e5c34ad0858cb6b4aae9355190919b765622b566c7fa808b',
+    CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS || '0xC65f3ec1e0a6853d2e6267CB918E683BA7E4f36c',
+    POLLING_INTERVAL: 3000,
+    MAX_RETRIES: 3,
+    BATCH_SIZE: 10,
+    ALERT_COOLDOWN: 30000,
+    CORRELATION_WINDOW: 300000
+};
+
+const ENHANCED_CONTRACT_ABI = [
+    "function reportAdvancedThreat(bytes32 _txHash, address _flaggedAddress, address[] memory _relatedAddresses, uint8 _level, uint8 _category, uint256 _confidenceScore, uint256 _severityScore, string memory _description, bytes memory _additionalData, bytes32 _modelHash, uint256 _economicImpact, bytes32[] memory _relatedAlerts) payable",
+    "function validateThreatWithConsensus(uint256 _alertId, bool _isConfirming, uint256 _confidence, string memory _reasoning, bytes memory _evidence) payable",
+    "function getAdvancedThreatAnalytics(uint256 _days) view returns (uint256[] memory, uint256[] memory, uint256[] memory, uint256, uint256, uint256)",
+    "event ThreatReported(uint256 indexed alertId, bytes32 indexed txHash, address indexed flaggedAddress, uint8 level, uint8 category, uint256 confidenceScore, address reporter, uint256 timestamp, bytes32 modelHash)",
+    "event ThreatConfirmed(uint256 indexed alertId, address indexed validator, uint256 confirmations, uint256 timestamp, uint256 consensusReached)",
+    "event ConsensusReached(uint256 indexed alertId, uint8 finalStatus, uint256 validatorCount, uint256 totalStake)"
+];
+
+class AdvancedThreatCorrelator extends EventEmitter {
+    constructor() {
+        super();
+        this.threatHistory = new Map();
+        this.addressPatterns = new Map();
+        this.temporalClusters = new Map();
+        this.alertCooldowns = new Map();
+        this.correlationRules = this._initializeCorrelationRules();
+    }
+
+    _initializeCorrelationRules() {
+        return {
+            addressVelocity: {
+                threshold: 5,
+                window: 60000,
+                severity: 'HIGH'
+            },
+            
+            valuePattern: {
+                roundNumberThreshold: 0.95,
+                frequency: 3,
+                window: 300000,
+                severity: 'MEDIUM'
+            },
+            
             temporalClustering: {
                 minClusterSize: 3,
-                timeWindow: 180000, // 3 minutes
+                timeWindow: 180000,
                 severity: 'CRITICAL'
             },
             
-            // Gas price correlation rules
             gasPriceManipulation: {
-                deviationThreshold: 200, // 200% above average
+                deviationThreshold: 200,
                 frequency: 2,
-                window: 120000, // 2 minutes
+                window: 120000,
                 severity: 'HIGH'
             }
         };
@@ -19,13 +69,10 @@
         const correlations = this._performCorrelationAnalysis(txData, aiAnalysis);
         const enhancedThreat = this._enhanceThreatData(txData, aiAnalysis, correlations);
         
-        // Store in history
         this.threatHistory.set(txData.hash, enhancedThreat);
         
-        // Update address patterns
         this._updateAddressPatterns(txData);
         
-        // Update temporal clusters
         this._updateTemporalClusters(enhancedThreat);
         
         return enhancedThreat;
@@ -69,7 +116,7 @@
         let similarity = 0;
         for (const roundNum of roundNumbers) {
             const diff = Math.abs(valueEth - roundNum) / roundNum;
-            if (diff < 0.05) { // Within 5%
+            if (diff < 0.05) {
                 similarity = Math.max(similarity, 1 - diff);
             }
         }
@@ -106,14 +153,13 @@
     _checkGasPriceManipulation(gasPrice) {
         const gasPriceGwei = parseFloat(ethers.formatUnits(gasPrice || 0, 'gwei'));
         
-        // Calculate average gas price from recent transactions
         const recentGasPrices = Array.from(this.threatHistory.values())
-            .filter(threat => Date.now() - threat.timestamp < 300000) // 5 minutes
+            .filter(threat => Date.now() - threat.timestamp < 300000)
             .map(threat => parseFloat(ethers.formatUnits(threat.txData.gasPrice || 0, 'gwei')));
         
         const avgGasPrice = recentGasPrices.length > 0 
             ? recentGasPrices.reduce((sum, price) => sum + price, 0) / recentGasPrices.length 
-            : 20; // Default 20 gwei
+            : 20;
         
         const deviation = gasPriceGwei / avgGasPrice;
         const isManipulated = deviation > this.correlationRules.gasPriceManipulation.deviationThreshold / 100;
@@ -135,10 +181,8 @@
         for (const [hash, threat] of this.threatHistory) {
             if (hash === txData.hash) continue;
             
-            // Check if within correlation window
-            if (now - threat.timestamp > this.CONFIG.CORRELATION_WINDOW) continue;
-            
-            // Check address relationship
+            if (now - threat.timestamp > CONFIG.CORRELATION_WINDOW) continue;
+
             if (threat.txData.from === txData.from || 
                 threat.txData.to === txData.to ||
                 threat.txData.from === txData.to ||
@@ -146,21 +190,22 @@
                 related.push({
                     hash,
                     relationship: 'address_connection',
-                    timestamp: threat.timestamp
+                    timestamp: threat.timestamp,
+                    address: threat.txData.from
                 });
             }
             
-            // Check value similarity
             const valueDiff = Math.abs(
                 parseFloat(ethers.formatEther(threat.txData.value || 0)) -
                 parseFloat(ethers.formatEther(txData.value || 0))
             );
             
-            if (valueDiff < 0.01) { // Very similar values
+            if (valueDiff < 0.01) {
                 related.push({
                     hash,
                     relationship: 'value_similarity',
-                    timestamp: threat.timestamp
+                    timestamp: threat.timestamp,
+                    address: threat.txData.from
                 });
             }
         }
@@ -186,19 +231,17 @@
     _calculateEnhancedSeverity(aiAnalysis, correlations) {
         let baseSeverity = aiAnalysis.threat_level || 0;
         
-        // Apply correlation multipliers
         if (correlations.addressVelocity.isAnomalous) baseSeverity += 1;
         if (correlations.temporalClustering.isClustered) baseSeverity += 2;
         if (correlations.gasPriceManipulation.isManipulated) baseSeverity += 1;
         if (correlations.relatedThreats.length > 2) baseSeverity += 1;
         
-        return Math.min(baseSeverity, 5); // Cap at 5
+        return Math.min(baseSeverity, 5);
     }
 
     _calculateRiskScore(aiAnalysis, correlations) {
         let score = aiAnalysis.danger_score || 0;
         
-        // Correlation bonuses
         score += correlations.addressVelocity.velocity * 2;
         score += correlations.temporalClustering.clusterSize * 5;
         score += correlations.relatedThreats.length * 3;
@@ -213,13 +256,11 @@
         const valueEth = parseFloat(ethers.formatEther(txData.value || 0));
         let impact = valueEth;
         
-        // Multiply by related threats
         impact *= (1 + correlations.relatedThreats.length * 0.5);
         
-        // Multiply by cluster size
         impact *= (1 + correlations.temporalClustering.clusterSize * 0.2);
         
-        return Math.floor(impact * 1e18); // Convert back to wei
+        return Math.floor(impact * 1e18);
     }
 
     _getRecommendedAction(aiAnalysis, correlations) {
@@ -250,15 +291,14 @@
             gasPrice: txData.gasPrice
         });
         
-        // Keep only recent transactions
-        const cutoff = Date.now() - 3600000; // 1 hour
+        const cutoff = Date.now() - 3600000;
         pattern.transactions = pattern.transactions.filter(tx => tx.timestamp > cutoff);
         
         this.addressPatterns.set(txData.from, pattern);
     }
 
     _updateTemporalClusters(enhancedThreat) {
-        const timeSlot = Math.floor(enhancedThreat.timestamp / 60000) * 60000; // 1-minute slots
+        const timeSlot = Math.floor(enhancedThreat.timestamp / 60000) * 60000;
         
         if (!this.temporalClusters.has(timeSlot)) {
             this.temporalClusters.set(timeSlot, []);
@@ -266,8 +306,7 @@
         
         this.temporalClusters.get(timeSlot).push(enhancedThreat);
         
-        // Clean old clusters
-        const cutoff = Date.now() - this.CONFIG.CORRELATION_WINDOW;
+        const cutoff = Date.now() - CONFIG.CORRELATION_WINDOW;
         for (const [slot, cluster] of this.temporalClusters) {
             if (slot < cutoff) {
                 this.temporalClusters.delete(slot);
@@ -279,12 +318,33 @@
         const lastAlert = this.alertCooldowns.get(address);
         const now = Date.now();
         
-        if (!lastAlert || now - lastAlert > this.CONFIG.ALERT_COOLDOWN) {
+        if (!lastAlert || now - lastAlert > CONFIG.ALERT_COOLDOWN) {
             this.alertCooldowns.set(address, now);
             return true;
         }
         
         return false;
+    }
+
+    getCorrelationStats() {
+        let addressVelocityAlerts = 0;
+        let temporalClusters = 0;
+        let gasPriceManipulations = 0;
+        let relatedThreatNetworks = 0;
+        
+        for (const [hash, threat] of this.threatHistory) {
+            if (threat.correlations.addressVelocity.isAnomalous) addressVelocityAlerts++;
+            if (threat.correlations.temporalClustering.isClustered) temporalClusters++;
+            if (threat.correlations.gasPriceManipulation.isManipulated) gasPriceManipulations++;
+            if (threat.correlations.relatedThreats.length > 0) relatedThreatNetworks++;
+        }
+        
+        return {
+            addressVelocityAlerts,
+            temporalClusters,
+            gasPriceManipulations,
+            relatedThreatNetworks
+        };
     }
 }
 
@@ -318,8 +378,6 @@ class AdvancedAnalyticsCollector {
         const hourlyData = this.metrics.hourlyStats.get(hour) || { count: 0, threats: 0 };
         hourlyData.count++;
         this.metrics.hourlyStats.set(hour, hourlyData);
-        
-        // Record gas price
         const gasPriceGwei = parseFloat(ethers.formatUnits(txData.gasPrice || 0, 'gwei'));
         this.metrics.gasPrice.samples.push(gasPriceGwei);
         
@@ -329,7 +387,6 @@ class AdvancedAnalyticsCollector {
         
         this._updateGasStats();
         
-        // Record performance
         this.performanceLog.push({
             timestamp: Date.now(),
             processingTime,
@@ -343,25 +400,19 @@ class AdvancedAnalyticsCollector {
 
     recordThreat(enhancedThreat) {
         this.metrics.threatsDetected++;
-        
         const hour = new Date().getHours();
         const hourlyData = this.metrics.hourlyStats.get(hour) || { count: 0, threats: 0 };
         hourlyData.threats++;
         this.metrics.hourlyStats.set(hour, hourlyData);
-        
-        // Record threat category
-        const category = enhancedThreat.aiAnalysis.threat_category;
+        const category = enhancedThreat.aiAnalysis.threat_category || 'UNKNOWN';
         const categoryCount = this.metrics.threatCategories.get(category) || 0;
         this.metrics.threatCategories.set(category, categoryCount + 1);
-        
-        // Update network risk score
         this._updateNetworkRiskScore(enhancedThreat);
     }
 
     recordAlert(alertId, responseTime) {
         this.metrics.alertsSent++;
         
-        // Update average response time
         const totalTime = this.metrics.averageResponseTime * (this.metrics.alertsSent - 1) + responseTime;
         this.metrics.averageResponseTime = totalTime / this.metrics.alertsSent;
     }
@@ -381,7 +432,7 @@ class AdvancedAnalyticsCollector {
 
     _updateNetworkRiskScore(enhancedThreat) {
         const riskContribution = enhancedThreat.riskScore / 100;
-        const decay = 0.95; // 5% decay per update
+        const decay = 0.95;
         
         this.metrics.networkRiskScore = (this.metrics.networkRiskScore * decay) + (riskContribution * (1 - decay));
     }
@@ -448,7 +499,6 @@ class AdvancedCerberusMonitor {
             console.log('🔗 Threat correlation detected:', correlationData);
         });
         
-        // Graceful shutdown
         process.on('SIGINT', () => this._shutdown('SIGINT'));
         process.on('SIGTERM', () => this._shutdown('SIGTERM'));
     }
@@ -462,13 +512,10 @@ class AdvancedCerberusMonitor {
         console.log('🔄 Starting advanced monitoring...');
         this.isRunning = true;
         
-        // Setup contract event listeners
         this._setupContractListeners();
         
-        // Start polling loop
         this._startPollingLoop();
         
-        // Start analytics reporting
         this._startAnalyticsReporting();
         
         console.log('✅ Advanced Cerberus Monitor is now active!');
@@ -476,7 +523,7 @@ class AdvancedCerberusMonitor {
 
     _setupContractListeners() {
         this.contract.on('ThreatReported', (alertId, txHash, flaggedAddress, level, category, confidence, reporter, timestamp, modelHash) => {
-            console.log('\n🔔 ADVANCED THREAT ALERT CONFIRMED');
+            console.log('\n🚨 ADVANCED THREAT ALERT CONFIRMED');
             console.log('=====================================');
             console.log(`Alert ID: ${alertId}`);
             console.log(`Transaction: ${txHash}`);
@@ -514,14 +561,13 @@ class AdvancedCerberusMonitor {
                     lastBlockNumber = currentBlock;
                 }
                 
-                // Process retry queue
                 await this._processRetryQueue();
                 
                 await this._sleep(CONFIG.POLLING_INTERVAL);
                 
             } catch (error) {
                 console.error('⚠️ Polling error:', error.message);
-                await this._sleep(CONFIG.POLLING_INTERVAL * 2); // Backoff on error
+                await this._sleep(CONFIG.POLLING_INTERVAL * 2);
             }
         }
     }
@@ -569,29 +615,21 @@ class AdvancedCerberusMonitor {
         const startTime = Date.now();
         
         try {
-            // Extract transaction data
             const txData = this._extractTransactionData(tx);
             
-            // Skip low-value transactions
             if (this._shouldSkipTransaction(txData)) {
                 return;
             }
             
             console.log(`🔍 Advanced analysis: ${tx.hash.substring(0, 10)}... | Value: ${parseFloat(ethers.formatEther(tx.value || 0)).toFixed(4)} U2U`);
             
-            // Get AI analysis
             const aiAnalysis = await this._getAIAnalysis(txData);
-            
-            // Perform correlation analysis
             const enhancedThreat = this.correlator.analyzeThreat(txData, aiAnalysis);
-            
-            // Record metrics
             const processingTime = Date.now() - startTime;
             this.analytics.recordTransaction(txData, processingTime);
             
             console.log(`📊 Enhanced Analysis: Danger=${enhancedThreat.riskScore} | Category=${aiAnalysis.threat_category} | Correlations=${Object.keys(enhancedThreat.correlations).filter(k => enhancedThreat.correlations[k].isAnomalous || enhancedThreat.correlations[k].isClustered || enhancedThreat.correlations[k].isManipulated).length}`);
             
-            // Check if should alert
             if (this._shouldCreateAlert(enhancedThreat)) {
                 await this._createAdvancedAlert(enhancedThreat);
             }
@@ -620,7 +658,7 @@ class AdvancedCerberusMonitor {
 
     _shouldSkipTransaction(txData) {
         const valueEth = parseFloat(ethers.formatEther(txData.value || 0));
-        return valueEth < 0.01 && txData.to; // Skip small non-contract creation transactions
+        return valueEth < 0.01 && txData.to;
     }
 
     async _getAIAnalysis(txData) {
@@ -640,7 +678,6 @@ class AdvancedCerberusMonitor {
             
         } catch (error) {
             console.error('❌ AI analysis failed:', error.message);
-            // Return default analysis
             return {
                 danger_score: 0,
                 threat_category: 'UNKNOWN',
@@ -654,12 +691,10 @@ class AdvancedCerberusMonitor {
     _shouldCreateAlert(enhancedThreat) {
         const { aiAnalysis, correlations, recommendedAction, riskScore } = enhancedThreat;
         
-        // Don't alert if in cooldown
         if (!this.correlator.shouldAlert(enhancedThreat.txData.from)) {
             return false;
         }
         
-        // Alert criteria
         return (
             recommendedAction === 'IMMEDIATE_ESCALATION' ||
             (aiAnalysis.is_malicious && aiAnalysis.confidence > 70) ||
@@ -675,8 +710,6 @@ class AdvancedCerberusMonitor {
             this.analytics.recordThreat(enhancedThreat);
             
             const { txData, aiAnalysis, correlations, economicImpact } = enhancedThreat;
-            
-            // Prepare advanced alert parameters
             const alertParams = this._prepareAdvancedAlertParams(enhancedThreat);
             
             console.log('🔧 Alert parameters prepared:', {
@@ -689,7 +722,6 @@ class AdvancedCerberusMonitor {
                 ).length
             });
             
-            // Estimate gas
             const gasEstimate = await this.contract.reportAdvancedThreat.estimateGas(
                 ...alertParams.params,
                 { value: alertParams.stakeAmount }
@@ -697,7 +729,6 @@ class AdvancedCerberusMonitor {
             
             console.log(`⛽ Gas estimate: ${gasEstimate.toString()}`);
             
-            // Send transaction
             const reportTx = await this.contract.reportAdvancedThreat(
                 ...alertParams.params,
                 {
@@ -718,7 +749,6 @@ class AdvancedCerberusMonitor {
             if (error.message.includes('already reported')) {
                 console.log('⚠️ Transaction already reported');
             } else {
-                // Add to retry queue for non-duplicate errors
                 this.retryQueue.push({
                     type: 'alert',
                     enhancedThreat,
@@ -730,8 +760,6 @@ class AdvancedCerberusMonitor {
 
     _prepareAdvancedAlertParams(enhancedThreat) {
         const { txData, aiAnalysis, correlations, economicImpact } = enhancedThreat;
-        
-        // Convert threat category to number
         const categoryMap = {
             'UNKNOWN': 0, 'RUG_PULL': 1, 'FLASH_LOAN_ATTACK': 2,
             'FRONT_RUNNING': 3, 'MEV_ABUSE': 4, 'PRICE_MANIPULATION': 5,
@@ -744,19 +772,15 @@ class AdvancedCerberusMonitor {
         const categoryValue = categoryMap[aiAnalysis.threat_category] || 0;
         const modelHash = ethers.keccak256(ethers.toUtf8Bytes("cerberus-ai-ensemble-v2.0.0-advanced"));
         const stakeAmount = ethers.parseEther("0.01");
-        
-        // Prepare related addresses
         const relatedAddresses = correlations.relatedThreats
-            .map(threat => threat.relationship === 'address_connection' ? threat.address : null)
+            .map(threat => threat.address)
             .filter(addr => addr !== null)
-            .slice(0, 5); // Max 5 related addresses
+            .slice(0, 5);
         
-        // Prepare related alerts (threat hashes)
         const relatedAlerts = correlations.relatedThreats
             .map(threat => ethers.keccak256(ethers.toUtf8Bytes(threat.hash)))
-            .slice(0, 10); // Max 10 related alerts
+            .slice(0, 10);
         
-        // Additional data as bytes
         const additionalData = ethers.toUtf8Bytes(JSON.stringify({
             correlations: {
                 addressVelocity: correlations.addressVelocity.isAnomalous,
@@ -769,18 +793,18 @@ class AdvancedCerberusMonitor {
         }));
         
         const params = [
-            txData.hash,                                    // _txHash
-            txData.from,                                   // _flaggedAddress
-            relatedAddresses,                              // _relatedAddresses
-            enhancedThreat.enhancedSeverity,              // _level
-            categoryValue,                                 // _category
-            Math.floor(aiAnalysis.confidence),            // _confidenceScore
-            enhancedThreat.riskScore,                     // _severityScore
-            aiAnalysis.threat_signature.substring(0, 100), // _description
-            additionalData,                               // _additionalData
-            modelHash,                                    // _modelHash
-            economicImpact,                               // _economicImpact
-            relatedAlerts                                 // _relatedAlerts
+            txData.hash,
+            txData.from,
+            relatedAddresses,
+            enhancedThreat.enhancedSeverity,
+            categoryValue,
+            Math.floor(aiAnalysis.confidence || 0),
+            enhancedThreat.riskScore,
+            (aiAnalysis.threat_signature || 'Unknown threat').substring(0, 100),
+            additionalData,
+            modelHash,
+            economicImpact,
+            relatedAlerts
         ];
         
         return { params, stakeAmount };
@@ -789,7 +813,7 @@ class AdvancedCerberusMonitor {
     async _processRetryQueue() {
         if (this.retryQueue.length === 0) return;
         
-        const itemsToRetry = this.retryQueue.splice(0, 5); // Process max 5 items
+        const itemsToRetry = this.retryQueue.splice(0, 5);
         
         for (const item of itemsToRetry) {
             if (item.attempts >= CONFIG.MAX_RETRIES) {
@@ -808,7 +832,7 @@ class AdvancedCerberusMonitor {
                 
             } catch (error) {
                 console.error(`Retry failed for ${item.type}:`, error.message);
-                this.retryQueue.push(item); // Re-queue for next retry
+                this.retryQueue.push(item);
             }
         }
     }
@@ -816,11 +840,11 @@ class AdvancedCerberusMonitor {
     _startAnalyticsReporting() {
         setInterval(() => {
             this._logAnalytics();
-        }, 300000); // Every 5 minutes
+        }, 300000);
         
         setInterval(() => {
             this._logDetailedAnalytics();
-        }, 1800000); // Every 30 minutes
+        }, 1800000);
     }
 
     _logAnalytics() {
@@ -835,7 +859,7 @@ class AdvancedCerberusMonitor {
         console.log(`✅ Consensus Reached: ${metrics.consensusReached}`);
         console.log(`📊 Detection Rate: ${metrics.detectionRate}`);
         console.log(`⚡ Alert Rate: ${metrics.alertRate}`);
-        console.log(`🌐 Network Risk Score: ${metrics.networkRiskScore.toFixed(2)}`);
+        console.log(`🌍 Network Risk Score: ${metrics.networkRiskScore.toFixed(2)}`);
         console.log(`⛽ Avg Gas Price: ${metrics.gasPrice.average.toFixed(2)} gwei`);
         console.log(`📈 Gas Volatility: ${metrics.gasPrice.volatility.toFixed(2)}`);
         console.log(`⏱️  Avg Processing Time: ${metrics.avgProcessingTime.toFixed(2)}ms`);
@@ -847,22 +871,18 @@ class AdvancedCerberusMonitor {
         
         console.log('\n📊 DETAILED THREAT ANALYTICS');
         console.log('========================================');
-        
-        // Hourly distribution
         console.log('📅 Hourly Activity Distribution:');
         for (const [hour, data] of metrics.hourlyStats) {
             const threatRate = data.count > 0 ? (data.threats / data.count * 100).toFixed(1) : '0.0';
             console.log(`   ${hour.toString().padStart(2, '0')}:00 - Txs: ${data.count}, Threats: ${data.threats} (${threatRate}%)`);
         }
         
-        // Threat categories
         console.log('\n🏷️  Threat Category Distribution:');
         for (const [category, count] of metrics.threatCategories) {
             const percentage = (count / metrics.threatsDetected * 100).toFixed(1);
             console.log(`   ${category}: ${count} (${percentage}%)`);
         }
         
-        // Correlation insights
         const correlationStats = this.correlator.getCorrelationStats();
         console.log('\n🔗 Correlation Analysis:');
         console.log(`   Address Velocity Alerts: ${correlationStats.addressVelocityAlerts}`);
@@ -893,11 +913,8 @@ class AdvancedCerberusMonitor {
         console.log(`\n🛑 Received ${signal}. Initiating graceful shutdown...`);
         
         this.isRunning = false;
-        
-        // Log final analytics
         this._logDetailedAnalytics();
         
-        // Save state if needed
         await this._saveState();
         
         console.log('✅ Advanced Cerberus Monitor shutdown complete');
@@ -931,7 +948,6 @@ class AdvancedCerberusMonitor {
             const stateData = await fs.readFile(statePath, 'utf8');
             const state = JSON.parse(stateData);
             
-            // Restore correlator state
             this.correlator.threatHistory = new Map(state.threatHistory);
             this.correlator.addressPatterns = new Map(state.addressPatterns);
             
@@ -943,49 +959,27 @@ class AdvancedCerberusMonitor {
     }
 }
 
-// Add correlation stats method to ThreatCorrelator
-AdvancedThreatCorrelator.prototype.getCorrelationStats = function() {
-    let addressVelocityAlerts = 0;
-    let temporalClusters = 0;
-    let gasPriceManipulations = 0;
-    let relatedThreatNetworks = 0;
-    
-    for (const [hash, threat] of this.threatHistory) {
-        if (threat.correlations.addressVelocity.isAnomalous) addressVelocityAlerts++;
-        if (threat.correlations.temporalClustering.isClustered) temporalClusters++;
-        if (threat.correlations.gasPriceManipulation.isManipulated) gasPriceManipulations++;
-        if (threat.correlations.relatedThreats.length > 0) relatedThreatNetworks++;
-    }
-    
-    return {
-        addressVelocityAlerts,
-        temporalClusters,
-        gasPriceManipulations,
-        relatedThreatNetworks
-    };
-};
-
-// Main execution
 async function main() {
     try {
         console.log('🚀 Initializing Advanced Cerberus Monitoring System...');
         
         const monitor = new AdvancedCerberusMonitor();
         
-        // Load previous state if available
         await monitor.loadState();
         
-        // Test AI connection
         console.log('🧪 Testing AI Sentinel connection...');
-        const testResponse = await fetch(CONFIG.AI_API_URL.replace('/predict', '/'));
-        if (testResponse.ok) {
-            const aiHealth = await testResponse.json();
-            console.log(`✅ AI Sentinel: ${aiHealth.status} | Version: ${aiHealth.version}`);
-        } else {
-            throw new Error('AI Sentinel not responding');
+        try {
+            const testResponse = await fetch(CONFIG.AI_API_URL.replace('/predict', '/'));
+            if (testResponse.ok) {
+                const aiHealth = await testResponse.json();
+                console.log(`✅ AI Sentinel: ${aiHealth.status} | Version: ${aiHealth.version}`);
+            } else {
+                console.log('⚠️ AI Sentinel health check failed, but will continue monitoring');
+            }
+        } catch (error) {
+            console.log('⚠️ AI Sentinel not responding, monitoring will continue with degraded functionality');
         }
         
-        // Start monitoring
         await monitor.start();
         
     } catch (error) {
@@ -994,7 +988,6 @@ async function main() {
     }
 }
 
-// Export for testing
 module.exports = {
     AdvancedCerberusMonitor,
     AdvancedThreatCorrelator,
@@ -1002,71 +995,6 @@ module.exports = {
     CONFIG
 };
 
-// Run if this is the main module
 if (require.main === module) {
     main();
-}/**
- * Advanced Cerberus Monitor with Event Correlation and Real-time Analytics
- */
-
-const { ethers } = require('ethers');
-const fetch = require('node-fetch');
-const EventEmitter = require('events');
-const fs = require('fs').promises;
-const path = require('path');
-
-// Configuration
-const CONFIG = {
-    U2U_RPC_WSS: 'wss://rpc-nebulas-testnet.uniultra.xyz',
-    U2U_RPC_HTTP: 'https://rpc-nebulas-testnet.uniultra.xyz',
-    AI_API_URL: 'http://127.0.0.1:5001/predict',
-    MONITOR_PRIVATE_KEY: 'a29a6848264f0ae2e5c34ad0858cb6b4aae9355190919b765622b566c7fa808b',
-    CONTRACT_ADDRESS: '0xC65f3ec1e0a6853d2e6267CB918E683BA7E4f36c',
-    POLLING_INTERVAL: 3000, // 3 seconds
-    MAX_RETRIES: 3,
-    BATCH_SIZE: 10,
-    ALERT_COOLDOWN: 30000, // 30 seconds
-    CORRELATION_WINDOW: 300000 // 5 minutes
-};
-
-// Enhanced contract ABI
-const ENHANCED_CONTRACT_ABI = [
-    "function reportAdvancedThreat(bytes32 _txHash, address _flaggedAddress, address[] memory _relatedAddresses, uint8 _level, uint8 _category, uint256 _confidenceScore, uint256 _severityScore, string memory _description, bytes memory _additionalData, bytes32 _modelHash, uint256 _economicImpact, bytes32[] memory _relatedAlerts) payable",
-    "function validateThreatWithConsensus(uint256 _alertId, bool _isConfirming, uint256 _confidence, string memory _reasoning, bytes memory _evidence) payable",
-    "function getAdvancedThreatAnalytics(uint256 _days) view returns (uint256[] memory, uint256[] memory, uint256[] memory, uint256, uint256, uint256)",
-    "event ThreatReported(uint256 indexed alertId, bytes32 indexed txHash, address indexed flaggedAddress, uint8 level, uint8 category, uint256 confidenceScore, address reporter, uint256 timestamp, bytes32 modelHash)",
-    "event ThreatConfirmed(uint256 indexed alertId, address indexed validator, uint256 confirmations, uint256 timestamp, uint256 consensusReached)",
-    "event ConsensusReached(uint256 indexed alertId, uint8 finalStatus, uint256 validatorCount, uint256 totalStake)"
-];
-
-class AdvancedThreatCorrelator extends EventEmitter {
-    constructor() {
-        super();
-        this.threatHistory = new Map(); // txHash -> threat data
-        this.addressPatterns = new Map(); // address -> pattern data
-        this.temporalClusters = new Map(); // timeWindow -> threats
-        this.alertCooldowns = new Map(); // address -> lastAlertTime
-        this.correlationRules = this._initializeCorrelationRules();
-    }
-
-    _initializeCorrelationRules() {
-        return {
-            // Address correlation rules
-            addressVelocity: {
-                threshold: 5, // transactions per minute
-                window: 60000, // 1 minute
-                severity: 'HIGH'
-            },
-            
-            // Value correlation rules
-            valuePattern: {
-                roundNumberThreshold: 0.95, // 95% similar to round numbers
-                frequency: 3, // 3 similar values in window
-                window: 300000, // 5 minutes
-                severity: 'MEDIUM'
-            },
-            
-            // Temporal correlation rules
-            temporalClustering: {
-                minClusterSize: 3,
-                timeWindow: 180000, // 3 minutes
+}
