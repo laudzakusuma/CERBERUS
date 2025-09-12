@@ -110,11 +110,12 @@ class AdvancedFeatureExtractor:
             **network_features,
             **behavioral_features
         }
-    
+
     def _extract_base_features(self, tx_data: Dict) -> Dict[str, Any]:
         """Extract basic transaction features"""
-        gas_price = int(tx_data.get('gasPrice', 0) or 0)
-        gas_limit = int(tx_data.get('gasLimit', 0) or 0)
+        # Sesudah diubah
+        gas_price = self._safe_int_conversion(tx_data.get('gasPrice', 0))
+        gas_limit = self._safe_int_conversion(tx_data.get('gasLimit', 0))
         value_wei = self._safe_int_conversion(tx_data.get('value', 0))
         value_eth = value_wei / 1e18
         
