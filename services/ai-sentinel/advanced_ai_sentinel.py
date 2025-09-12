@@ -127,7 +127,7 @@ class AdvancedFeatureExtractor:
             'is_contract_creation': tx_data.get('to') is None,
             'data_size': len(tx_data.get('data', '')),
             'has_data': bool(tx_data.get('data') and tx_data.get('data') != '0x'),
-            'nonce': int(tx_data.get('nonce', 0) or 0)
+            'nonce': self._safe_int_conversion(tx_data.get('nonce', 0))
         }
     
     def _extract_temporal_features(self, tx_data: Dict) -> Dict[str, Any]:
