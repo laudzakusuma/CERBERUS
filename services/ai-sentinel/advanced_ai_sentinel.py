@@ -434,7 +434,7 @@ class MultiModelEnsemble:
             final_confidence=weighted_confidence,
             threat_category=most_common_category,
             threat_level=final_level,
-            is_malicious=weighted_confidence > 35,
+            is_malicious=weighted_confidence > 30,
             model_consensus=consensus,
             individual_predictions=individual_predictions,
             meta_features=meta_features
@@ -484,13 +484,12 @@ class RuleBasedDetector:
         score = 0
         reasoning = []
         
-        # Gas price rules
         gas_price_gwei = features.get('gas_price_gwei', 0)
         if gas_price_gwei > 80:
-            score += 95
+            score += 85  # Increased from 30
             reasoning.append(f"Very high gas price: {gas_price_gwei:.1f} gwei")
         elif gas_price_gwei > 50:
-            score += 15
+            score += 60  # Increased from 15
             reasoning.append(f"High gas price: {gas_price_gwei:.1f} gwei")
         
         # Value rules

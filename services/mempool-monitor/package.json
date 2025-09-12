@@ -11,14 +11,14 @@
     "clean": "rm -f monitor_state.json *.log"
   },
   "dependencies": {
-    "ethers": "^6.8.0",
-    "node-fetch": "^2.7.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.6.1",
+    "ethers": "^6.15.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
+    "eslint": "^8.52.0",
     "jest": "^29.7.0",
-    "eslint": "^8.52.0"
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=18.0.0"
