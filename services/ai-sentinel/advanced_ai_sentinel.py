@@ -224,8 +224,8 @@ class AdvancedFeatureExtractor:
     
     def _extract_behavioral_features(self, tx_data: Dict) -> Dict[str, Any]:
         """Extract behavioral analysis features"""
-        gas_price = int(tx_data.get('gasPrice', 0) or 0)
-        gas_limit = int(tx_data.get('gasLimit', 0) or 0)
+        gas_price = self._safe_int_conversion(tx_data.get('gasPrice', 0))
+        gas_limit = self._safe_int_conversion(tx_data.get('gasLimit', 0))
         value_eth = self._safe_int_conversion(tx_data.get('value', 0)) / 1e18
         
         # Behavioral indicators
