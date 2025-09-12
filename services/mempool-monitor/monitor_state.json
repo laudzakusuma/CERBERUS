@@ -1,25 +1,12 @@
 {
-  "threatHistory": [],
-  "addressPatterns": [],
-  "metrics": {
-    "totalTransactionsAnalyzed": 0,
+  "stats": {
+    "startTime": 1757672867696,
+    "totalAnalyzed": 0,
     "threatsDetected": 0,
     "alertsSent": 0,
-    "consensusReached": 0,
-    "averageResponseTime": 0,
-    "modelAccuracy": 0,
-    "networkRiskScore": 0,
-    "hourlyStats": {},
-    "threatCategories": {},
-    "gasPrice": {
-      "samples": [],
-      "average": 0,
-      "volatility": 0
-    },
-    "uptime": 267.388,
-    "avgProcessingTime": 0,
-    "detectionRate": "0%",
-    "alertRate": "0%"
+    "errors": 0,
+    "lastBlock": 59529448
   },
-  "timestamp": 1757644334658
+  "threatHistory": [],
+  "timestamp": 1757673485945
 }

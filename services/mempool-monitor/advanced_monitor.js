@@ -1848,7 +1848,7 @@ class CerberusMonitor {
                 const data = await response.json();
                 console.log(`✅ AI Sentinel: ${data.status}`);
                 console.log(`   Version: ${data.version || '2.0.0'}`);
-                console.log(`   Model: ${data.model_loaded ? 'Loaded' : 'Not loaded'}`);
+                console.log(`   Model: ${data.isolation_model_loaded ? 'Loaded' : 'Not loaded'}`);
             } else {
                 console.warn('⚠️  AI Sentinel not responding properly');
                 console.log('   Monitor will continue with limited functionality');
@@ -1894,14 +1894,14 @@ class CerberusMonitor {
             try {
                 const currentBlock = await this.provider.getBlockNumber();
                 
-                // Process new blocks
                 if (currentBlock > this.stats.lastBlock) {
-                    await this.processBlocks(this.stats.lastBlock + 1, currentBlock);
-                    this.stats.lastBlock = currentBlock;
+                    // Proses blok dan dapatkan nomor blok terakhir yang benar-benar diproses
+                    const lastProcessedBlock = await this.processBlocks(this.stats.lastBlock + 1, currentBlock);
+                    this.stats.lastBlock = lastProcessedBlock; // Perbarui dengan nomor blok yang benar
                 }
                 
                 // Print stats periodically
-                if (this.stats.totalAnalyzed % 50 === 0 && this.stats.totalAnalyzed > 0) {
+                if (this.stats.totalAnalyzed > 0 && this.stats.totalAnalyzed % 50 === 0) {
                     this.printStats();
                 }
                 
@@ -1917,10 +1917,12 @@ class CerberusMonitor {
 
     async processBlocks(startBlock, endBlock) {
         const blockCount = Math.min(endBlock - startBlock + 1, CONFIG.BATCH_SIZE);
-        
-        for (let blockNum = startBlock; blockNum < startBlock + blockCount; blockNum++) {
+        const lastBlockToProcess = startBlock + blockCount - 1;
+
+        for (let blockNum = startBlock; blockNum <= lastBlockToProcess; blockNum++) {
             await this.processBlock(blockNum);
         }
+        return lastBlockToProcess;
     }
 
     async processBlock(blockNumber) {
@@ -1951,6 +1953,11 @@ class CerberusMonitor {
     }
 
     async analyzeTransaction(tx) {
+        if (!tx || !tx.hash) {
+            console.log('   ⏩ Skipping transaction with no hash.');
+            return;
+        }
+
         try {
             // Extract transaction data
             const txData = {
