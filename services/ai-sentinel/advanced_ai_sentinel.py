@@ -486,8 +486,8 @@ class RuleBasedDetector:
         
         # Gas price rules
         gas_price_gwei = features.get('gas_price_gwei', 0)
-        if gas_price_gwei > 100:
-            score += 30
+        if gas_price_gwei > 80:
+            score += 95
             reasoning.append(f"Very high gas price: {gas_price_gwei:.1f} gwei")
         elif gas_price_gwei > 50:
             score += 15

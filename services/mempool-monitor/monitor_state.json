@@ -1,12 +1,11 @@
 {
   "stats": {
-    "startTime": 1757672867696,
-    "totalAnalyzed": 0,
+    "startTime": 1757675403034,
+    "totalAnalyzed": 3,
     "threatsDetected": 0,
     "alertsSent": 0,
     "errors": 0,
-    "lastBlock": 59529448
+    "lastBlock": 59531248
   },
-  "threatHistory": [],
-  "timestamp": 1757673485945
+  "timestamp": 1757676886297
 }
