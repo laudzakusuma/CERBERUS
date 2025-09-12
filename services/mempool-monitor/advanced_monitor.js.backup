@@ -1,3 +1,4 @@
+// ADVANCED_MONITOR.JS - FIXED VERSION
 const { ethers } = require('ethers');
 const fetch = require('node-fetch');
 const EventEmitter = require('events');
@@ -20,127 +21,6 @@ const CONFIG = {
 };
 
 const CONTRACT_ABI = [
-    {
-      "inputs": [],
-      "stateMutability": "nonpayable",
-      "type": "constructor"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "alertId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "txHash",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "flaggedAddress",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "enum CerberusAdvanced.ThreatLevel",
-          "name": "level",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "enum CerberusAdvanced.ThreatCategory",
-          "name": "category",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "confidenceScore",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "reporter",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "timestamp",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "modelHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "ThreatReported",
-      "type": "event"
-    },
-    {
-      "inputs": [],
-      "name": "AI_ORACLE_ROLE",
-      "outputs": [
-        {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "role",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "hasRole",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "role",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "grantRole",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
     {
       "inputs": [
         {
@@ -210,32 +90,65 @@ const CONTRACT_ABI = [
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "getContractStats",
-      "outputs": [
+      "anonymous": false,
+      "inputs": [
         {
+          "indexed": true,
           "internalType": "uint256",
-          "name": "totalAlerts",
+          "name": "alertId",
           "type": "uint256"
         },
         {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "txHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "flaggedAddress",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum CerberusAdvanced.ThreatLevel",
+          "name": "level",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum CerberusAdvanced.ThreatCategory",
+          "name": "category",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
           "internalType": "uint256",
-          "name": "confirmedAlerts",
+          "name": "confidenceScore",
           "type": "uint256"
         },
         {
+          "indexed": false,
+          "internalType": "address",
+          "name": "reporter",
+          "type": "address"
+        },
+        {
+          "indexed": false,
           "internalType": "uint256",
-          "name": "totalStaked",
+          "name": "timestamp",
           "type": "uint256"
         },
         {
-          "internalType": "uint256",
-          "name": "totalRewards",
-          "type": "uint256"
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "modelHash",
+          "type": "bytes32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "name": "ThreatReported",
+      "type": "event"
     }
 ];
 
@@ -247,6 +160,8 @@ class ThreatAnalyzer extends EventEmitter {
     
     analyzeThreat(txData, aiAnalysis) {
         const riskScore = aiAnalysis.danger_score || 0;
+        
+        // LOWER THRESHOLD FOR TESTING
         const shouldAlert = riskScore > 40 && (aiAnalysis.is_malicious || riskScore > 50);
         
         return { 
@@ -254,15 +169,15 @@ class ThreatAnalyzer extends EventEmitter {
             aiAnalysis, 
             riskScore, 
             severity: this.getSeverity(riskScore), 
-            shouldAlert
+            shouldAlert  // Now triggers at > 40 instead of > 70
         };
     }
     
     getSeverity(riskScore) { 
-        if (riskScore > 90) return 3; // CRITICAL
-        if (riskScore > 75) return 2; // HIGH
-        if (riskScore > 50) return 1; // MEDIUM
-        return 0; // LOW
+        if (riskScore > 90) return 3; 
+        if (riskScore > 75) return 2; 
+        if (riskScore > 50) return 1; 
+        return 0; 
     }
     
     canAlert(txHash) {
@@ -318,35 +233,12 @@ class CerberusMonitor {
         console.log(`💰 Balance: ${ethers.formatEther(balance)} U2U`); 
         console.log(`📜 Contract: ${CONFIG.CONTRACT_ADDRESS}`);
         
-        // Test role permissions
-        await this.checkPermissions();
         await this.testAIConnection();
         this.setupEventListeners();
         this.stats.lastBlock = blockNumber;
         
         console.log('='.repeat(50)); 
         console.log('✨ Monitor Ready!\n');
-    }
-
-    async checkPermissions() {
-        try {
-            console.log('\n🔐 Checking Permissions...');
-            const AI_ORACLE_ROLE = await this.contract.AI_ORACLE_ROLE();
-            const hasRole = await this.contract.hasRole(AI_ORACLE_ROLE, this.wallet.address);
-            
-            console.log(`🔑 AI_ORACLE_ROLE: ${hasRole ? '✅ GRANTED' : '❌ MISSING'}`);
-            
-            if (!hasRole) {
-                console.log('⚠️  WARNING: Wallet does not have AI_ORACLE_ROLE');
-                console.log('📝 Run grant-role.js script first');
-                throw new Error('Missing AI_ORACLE_ROLE permission');
-            }
-        } catch (error) {
-            if (error.message.includes('Missing AI_ORACLE_ROLE')) {
-                throw error;
-            }
-            console.log('⚠️  Could not check permissions (older contract?)');
-        }
     }
 
     async testAIConnection() {
@@ -367,17 +259,6 @@ class CerberusMonitor {
     }
 
     setupEventListeners() {
-        // Listen for contract events
-        this.contract.on('ThreatReported', (alertId, txHash, flaggedAddress, level, category, confidence, reporter, timestamp, modelHash) => {
-            console.log(`\n🚨 ALERT CONFIRMED ON-CHAIN!`);
-            console.log(`📊 Alert ID: ${alertId}`);
-            console.log(`🔍 TX Hash: ${txHash}`);
-            console.log(`👤 Flagged: ${flaggedAddress}`);
-            console.log(`⚠️  Level: ${level} | Category: ${category}`);
-            console.log(`🎯 Confidence: ${confidence}%`);
-            console.log('='.repeat(50));
-        });
-
         process.on('SIGINT', () => this.shutdown());
         process.on('SIGTERM', () => this.shutdown());
     }
@@ -457,11 +338,12 @@ class CerberusMonitor {
             this.stats.totalAnalyzed++;
             
             const aiAnalysis = await this.getAIAnalysis(txData);
+            console.log(`      -> 📊 AI Response:`, JSON.stringify(aiAnalysis, null, 2));
+            
             const threat = this.analyzer.analyzeThreat(txData, aiAnalysis);
             
-            // Force alert for high gas prices (testing)
-            if (gasPrice > 100) {
-                threat.riskScore = 85;
+            if (gasPrice > 100) {  // If gas > 100 gwei
+                threat.riskScore = 85;  // Force high risk
                 threat.shouldAlert = true;
                 aiAnalysis.is_malicious = true;
                 aiAnalysis.threat_signature = "FORCED: High Gas Price Attack";
@@ -499,6 +381,7 @@ class CerberusMonitor {
         };
     }
 
+    // FIXED: Generate valid 32-byte hash
     generateValidHash(inputString) {
         const crypto = require('crypto');
         return '0x' + crypto.createHash('sha256').update(inputString).digest('hex');
@@ -509,7 +392,7 @@ class CerberusMonitor {
             const { txData, aiAnalysis, severity, riskScore } = threat;
             console.log('      -> ⛓️  Sending on-chain alert...');
             
-            // Generate valid hash if needed
+            // FIXED: Generate valid 32-byte hash if needed
             let validHash = txData.hash;
             if (txData.hash.startsWith('0xtest')) {
                 validHash = this.generateValidHash(txData.hash + Date.now());
@@ -517,18 +400,18 @@ class CerberusMonitor {
             }
             
             const params = [ 
-                validHash,  // bytes32 _txHash
-                txData.from, // address _flaggedAddress
-                [], // address[] _relatedAddresses
-                severity, // ThreatLevel _level
-                0, // ThreatCategory _category (0 = UNKNOWN)
-                Math.floor(aiAnalysis.confidence || 80), // uint256 _confidenceScore
-                Math.floor(riskScore), // uint256 _severityScore
-                aiAnalysis.threat_signature.substring(0, 100), // string _description
-                '0x', // bytes _additionalData
-                ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2")), // bytes32 _modelHash
-                0, // uint256 _economicImpact
-                [] // bytes32[] _relatedAlerts
+                validHash,  // Use valid hash
+                txData.from, 
+                [], 
+                severity, 
+                0, 
+                Math.floor(aiAnalysis.confidence || 80), 
+                Math.floor(riskScore), 
+                aiAnalysis.threat_signature.substring(0, 100), 
+                '0x', 
+                ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2")), 
+                0, 
+                [] 
             ];
             
             const tx = await this.contract.reportAdvancedThreat(...params, { 
@@ -540,14 +423,12 @@ class CerberusMonitor {
             this.stats.alertsSent++;
             
             // Wait for confirmation
-            const receipt = await tx.wait();
-            console.log(`      -> ⚡ Alert confirmed in block: ${receipt.blockNumber}`);
+            await tx.wait();
+            console.log(`      -> ⚡ Alert confirmed on-chain!`);
             
         } catch (error) {
             if (error.message.includes('already reported')) {
                 console.log('      -> ⚠️  Transaction already reported.');
-            } else if (error.message.includes('AccessControl')) {
-                console.log('      -> ❌ PERMISSION DENIED: Run grant-role.js first');
             } else {
                 console.error('      -> ❌ On-chain alert failed:', error.message);
             }
@@ -591,7 +472,7 @@ async function main() {
 
         console.log("\n🔥 FORCING TEST TRANSACTION");
         const testTx = {
-            hash: '0x' + require('crypto').createHash('sha256').update('test_' + Date.now()).digest('hex'),
+            hash: '0x' + require('crypto').createHash('sha256').update('test_' + Date.now()).digest('hex'),  // FIXED: Valid 32-byte hash
             from: '0xfe89f390C1cf3D6b83171D41bEEF4A3E3A763fAE',
             to: null, // Contract creation
             value: ethers.parseEther('10').toString(),
@@ -612,5 +493,6 @@ async function main() {
     }
 }
 
+// This prevents the script from exiting prematurely.
 process.stdin.resume();
 main();

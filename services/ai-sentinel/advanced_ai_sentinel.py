@@ -1,8 +1,3 @@
-# advanced_ai_sentinel.py
-# Integrated with IsolationForest model logic from final-ai-sentinel.py
-# Sources: advanced_ai_sentinel.py (original) :contentReference[oaicite:2]{index=2}
-#          final-ai-sentinel.py (model loader & training) :contentReference[oaicite:3]{index=3}
-
 import json
 import hashlib
 import asyncio
