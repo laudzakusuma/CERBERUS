@@ -1709,7 +1709,7 @@ class CerberusMonitor {
 
     async initialize() {
         console.log('\n🚀 INITIALIZING CERBERUS MONITOR'); console.log('='.repeat(50));
-        if (!CONFIG.MONITOR_PRIVATE_KEY || CONFIG.MONITOR_PRIVATE_KEY === 'a29a6848264f0ae2e5c34ad0858cb6b4aae9355190919b765622b566c7fa808b') throw new Error('MONITOR_PRIVATE_KEY not configured in .env file');
+        if (!CONFIG.MONITOR_PRIVATE_KEY || CONFIG.MONITOR_PRIVATE_KEY === 'MONITOR_PRIVATE_KEY') throw new Error('MONITOR_PRIVATE_KEY not configured in .env file');
         this.provider = new ethers.JsonRpcProvider(CONFIG.U2U_RPC_HTTP);
         this.wallet = new ethers.Wallet(CONFIG.MONITOR_PRIVATE_KEY, this.provider);
         this.contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONTRACT_ABI, this.wallet);
