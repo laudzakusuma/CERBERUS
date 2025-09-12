@@ -140,7 +140,7 @@ class AdvancedFeatureExtractor:
         is_night = hour < 6 or hour > 22
         
         # Gas price trend analysis
-        gas_price = int(tx_data.get('gasPrice', 0) or 0)
+        gas_price = self._safe_int_conversion(tx_data.get('gasPrice', 0))
         self.gas_price_history.append(gas_price)
         
         gas_price_percentile = 50
