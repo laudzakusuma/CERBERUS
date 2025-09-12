@@ -434,7 +434,7 @@ class MultiModelEnsemble:
             final_confidence=weighted_confidence,
             threat_category=most_common_category,
             threat_level=final_level,
-            is_malicious=weighted_confidence > 30 and consensus > 0.4,
+            is_malicious=weighted_confidence > 35,
             model_consensus=consensus,
             individual_predictions=individual_predictions,
             meta_features=meta_features
