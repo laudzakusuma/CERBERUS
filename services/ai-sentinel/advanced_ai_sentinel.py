@@ -1,6 +1,12 @@
+# advanced_ai_sentinel.py
+# Integrated with IsolationForest model logic from final-ai-sentinel.py
+# Sources: advanced_ai_sentinel.py (original) :contentReference[oaicite:2]{index=2}
+#          final-ai-sentinel.py (model loader & training) :contentReference[oaicite:3]{index=3}
+
 import json
 import hashlib
 import asyncio
+from flask_cors import CORS
 import numpy as np
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
@@ -8,16 +14,24 @@ from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass, asdict
 from flask import Flask, request, jsonify, g
 import threading
+
 import time
 import logging
 import sqlite3
 from contextlib import contextmanager
+
+# --- Added imports for integrated ML model ---
+import os
+import traceback
+import joblib
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+CORS(app)
 
 # Simple rate limiting without external dependencies
 request_counts = defaultdict(lambda: {'count': 0, 'reset_time': time.time() + 3600})
@@ -131,7 +145,10 @@ class AdvancedFeatureExtractor:
         gas_price_percentile = 50
         if len(self.gas_price_history) > 10:
             sorted_prices = sorted(self.gas_price_history)
-            gas_price_percentile = (sorted_prices.index(gas_price) / len(sorted_prices)) * 100
+            try:
+                gas_price_percentile = (sorted_prices.index(gas_price) / len(sorted_prices)) * 100
+            except ValueError:
+                gas_price_percentile = 50
         
         return {
             'hour_of_day': hour,
@@ -288,6 +305,75 @@ class AdvancedFeatureExtractor:
             return data[:10] in proxy_signatures
         return False
 
+# ========== Integration: IsolationForest model loader/trainer (from final-ai-sentinel.py) ==========
+ISOLATION_MODEL_PATH = 'model.joblib'
+isolation_model = None
+
+def create_and_train_isolation_model():
+    """Create and train model if missing (IsolationForest)."""
+    try:
+        from sklearn.ensemble import IsolationForest
+    except Exception as e:
+        logger.error("scikit-learn not installed or import failed: %s", e)
+        raise
+
+    logger.info("Creating new IsolationForest model...")
+
+    np.random.seed(42)
+    n_samples = 2000
+
+    # Normal transactions
+    normal_gas_price = np.random.normal(20, 5, int(n_samples * 0.95))
+    normal_gas_used = np.random.normal(50000, 15000, int(n_samples * 0.95))
+    normal_value = np.random.power(0.1, int(n_samples * 0.95)) * 10
+    normal_is_contract = np.zeros(int(n_samples * 0.95))
+
+    # Anomalous transactions
+    anomalous_gas_price = np.random.normal(100, 20, int(n_samples * 0.05))
+    anomalous_gas_used = np.random.normal(500000, 100000, int(n_samples * 0.05))
+    anomalous_value = np.random.uniform(50, 200, int(n_samples * 0.05))
+    anomalous_is_contract = np.ones(int(n_samples * 0.05))
+
+    # Combine data
+    gas_price = np.concatenate([normal_gas_price, anomalous_gas_price])
+    gas_used = np.concatenate([normal_gas_used, anomalous_gas_used])
+    value = np.concatenate([normal_value, anomalous_value])
+    is_contract = np.concatenate([normal_is_contract, anomalous_is_contract])
+
+    df = pd.DataFrame({
+        'gasPrice': gas_price,
+        'gasUsed': gas_used,
+        'value': value,
+        'isContractCreation': is_contract
+    })
+
+    new_model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
+    new_model.fit(df)
+    joblib.dump(new_model, ISOLATION_MODEL_PATH)
+    logger.info("IsolationForest model created and saved at %s", ISOLATION_MODEL_PATH)
+    return new_model
+
+def load_or_create_isolation_model():
+    global isolation_model
+    try:
+        if os.path.exists(ISOLATION_MODEL_PATH):
+            isolation_model = joblib.load(ISOLATION_MODEL_PATH)
+            logger.info("✅ Isolation model loaded successfully")
+        else:
+            logger.info("⚠️ Isolation model file not found, creating new model...")
+            isolation_model = create_and_train_isolation_model()
+    except Exception as e:
+        logger.error("Error loading or creating isolation model: %s", e)
+        try:
+            isolation_model = create_and_train_isolation_model()
+        except Exception as e2:
+            logger.error("Failed to create isolation model: %s", e2)
+            isolation_model = None
+
+# Initialize isolation model early
+load_or_create_isolation_model()
+
+# ========== Ensemble and detectors (unchanged structure, with AnomalyDetector updated) ==========
 class MultiModelEnsemble:
     """Advanced ensemble of multiple threat detection models"""
     
@@ -347,7 +433,7 @@ class MultiModelEnsemble:
             final_confidence=weighted_confidence,
             threat_category=most_common_category,
             threat_level=final_level,
-            is_malicious=weighted_confidence > 70 and consensus > 0.6,
+            is_malicious=weighted_confidence > 30 and consensus > 0.4,
             model_consensus=consensus,
             individual_predictions=individual_predictions,
             meta_features=meta_features
@@ -460,18 +546,19 @@ class RuleBasedDetector:
             return 'UNKNOWN'
 
 class AnomalyDetector:
-    """Statistical anomaly detection"""
+    """Statistical anomaly detection enhanced with IsolationForest (if available)"""
     
     def __init__(self):
         self.feature_stats = defaultdict(lambda: {'mean': 0, 'std': 1, 'count': 0})
     
     def predict(self, features: Dict[str, Any]) -> ModelPrediction:
-        """Anomaly-based prediction"""
+        """Anomaly-based prediction using both statistical z-score and isolation model if present"""
         anomaly_score = 0
         feature_importance = {}
         
         numeric_features = ['gas_price_gwei', 'value_eth', 'gas_limit', 'data_size']
         
+        # statistical anomaly contributions
         for feature in numeric_features:
             value = features.get(feature, 0)
             stats = self.feature_stats[feature]
@@ -482,18 +569,41 @@ class AnomalyDetector:
                 anomaly_score += anomaly_contribution
                 feature_importance[feature] = anomaly_contribution / 30
             
-            # Update statistics
+            # Update statistics (online)
             stats['count'] += 1
             stats['mean'] = (stats['mean'] * (stats['count'] - 1) + value) / stats['count']
             variance = ((stats['std'] ** 2) * (stats['count'] - 1) + (value - stats['mean']) ** 2) / stats['count']
             stats['std'] = np.sqrt(variance)
         
+        # isolation forest (ML) integration (if isolation_model loaded)
+        ml_confidence = 0.0
+        try:
+            global isolation_model
+            if isolation_model is not None:
+                # prepare features dataframe similar to training
+                df = pd.DataFrame([{
+                    'gasPrice': features.get('gas_price_gwei', 0) * 1e9,
+                    'gasUsed': features.get('gas_limit', 0),
+                    'value': features.get('value_eth', 0),
+                    'isContractCreation': 1 if features.get('is_contract_creation') else 0
+                }])
+                score = float(isolation_model.decision_function(df)[0])
+                # Convert model score to 0-100-ish risk: higher anomaly -> lower decision_function -> higher risk
+                ml_confidence = max(0, min(100, (1 - score) * 50))
+                feature_importance['isolation_ml'] = ml_confidence / 100
+        except Exception as e:
+            logger.warning("Isolation model prediction failed: %s", e)
+            ml_confidence = 0.0
+        
+        # Combine contributions: weight ML and statistical
+        combined_confidence = min(100, anomaly_score * 0.8 + ml_confidence * 0.9)
+        
         return ModelPrediction(
             model_name='anomaly_detector',
-            confidence=min(anomaly_score, 100),
-            threat_category='ANOMALOUS_BEHAVIOR',
-            threat_level=min(int(anomaly_score / 20), 5),
-            reasoning=f'Statistical anomaly detected (score: {anomaly_score:.1f})',
+            confidence=float(min(combined_confidence, 100)),
+            threat_category='ANOMALOUS_BEHAVIOR' if combined_confidence > 30 else 'NORMAL',
+            threat_level=min(int(combined_confidence / 20), 5),
+            reasoning=f'Stat anomaly: {anomaly_score:.1f}; ML_conf: {ml_confidence:.1f}',
             feature_importance=feature_importance
         )
 
@@ -689,7 +799,8 @@ def health_check():
         'uptime_hours': (datetime.now() - datetime.fromtimestamp(0)).total_seconds() / 3600,
         'models_loaded': list(ensemble.models.keys()),
         'prediction_history_size': len(ensemble.prediction_history),
-        'feature_stats_count': len(feature_extractor.address_patterns)
+        'feature_stats_count': len(feature_extractor.address_patterns),
+        'isolation_model_loaded': isolation_model is not None
     })
 
 @app.route('/predict', methods=['POST'])
@@ -749,6 +860,28 @@ def predict():
             'timestamp': datetime.utcnow().isoformat()
         }), 500
 
+def analyze_transaction(tx_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Helper to analyze a transaction dict (used by /test and for programmatic calls)"""
+    try:
+        features = feature_extractor.extract_comprehensive_features(tx_data)
+        result = ensemble.predict_ensemble(features)
+        db_manager.store_threat_report(tx_data.get('hash', 'unknown'), result, features)
+        return {
+            'danger_score': result.final_confidence,
+            'threat_category': result.threat_category,
+            'threat_level': result.threat_level,
+            'is_malicious': result.is_malicious,
+            'analysis_timestamp': datetime.utcnow().isoformat(),
+            'ensemble_details': {
+                'individual_predictions': [asdict(pred) for pred in result.individual_predictions],
+                'meta_features': result.meta_features
+            },
+            'features_analyzed': features
+        }
+    except Exception as e:
+        logger.error("analyze_transaction failed: %s", e)
+        return {'error': str(e)}
+
 @app.route('/analytics', methods=['GET'])
 def get_analytics():
     """Get advanced analytics and model performance"""
@@ -779,8 +912,26 @@ def get_analytics():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/test', methods=['POST'])
+def test():
+    """Test endpoint dengan transaksi berbahaya (uses analyze_transaction)"""
+    test_tx = {
+        'gasPrice': '0x174876e800',  # 100 gwei (high)
+        'gasLimit': '0x7a120',      # 500k gas
+        'value': '0xde0b6b3a7640000',  # 1 ETH
+        'to': None,  # Contract creation
+        'data': '0x608060405234801561001057600080fd5b50',
+        'hash': '0x1234567890abcdef'
+    }
+    
+    analysis = analyze_transaction(test_tx)
+    return jsonify({
+        'test_transaction': test_tx,
+        'analysis': analysis
+    })
+
 if __name__ == '__main__':
-    logger.info("Starting Cerberus Advanced AI Sentinel...")
+    logger.info("Starting Cerberus Advanced AI Sentinel (integrated with IsolationForest)...")
     logger.info(f"Model Version: {MODEL_VERSION}")
     logger.info(f"Model Hash: {MODEL_HASH}")
     logger.info(f"Ensemble Models: {list(ensemble.models.keys())}")

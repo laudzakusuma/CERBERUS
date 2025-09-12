@@ -1,0 +1,25 @@
+{
+  "threatHistory": [],
+  "addressPatterns": [],
+  "metrics": {
+    "totalTransactionsAnalyzed": 0,
+    "threatsDetected": 0,
+    "alertsSent": 0,
+    "consensusReached": 0,
+    "averageResponseTime": 0,
+    "modelAccuracy": 0,
+    "networkRiskScore": 0,
+    "hourlyStats": {},
+    "threatCategories": {},
+    "gasPrice": {
+      "samples": [],
+      "average": 0,
+      "volatility": 0
+    },
+    "uptime": 80.764,
+    "avgProcessingTime": 0,
+    "detectionRate": "0%",
+    "alertRate": "0%"
+  },
+  "timestamp": 1757640136982
+}
