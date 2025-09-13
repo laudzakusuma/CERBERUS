@@ -1,23 +1,5 @@
 const { ethers } = require('ethers');
-const fetch = require('node-fetch');
-const EventEmitter = require('events');
-const fs = require('fs').promises;
-const path = require('path');
-const dotenv = require('dotenv');
-
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-
-const CONFIG = {
-    U2U_RPC_HTTP: 'https://rpc-nebulas-testnet.uniultra.xyz',
-    AI_API_URL: process.env.AI_API_URL || 'http://127.0.0.1:5001/predict',
-    MONITOR_PRIVATE_KEY: process.env.MONITOR_PRIVATE_KEY,
-    CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS,
-    POLLING_INTERVAL: 3000,
-    BATCH_SIZE: 10,
-    ALERT_COOLDOWN: 30000,
-    MIN_VALUE_THRESHOLD: 0.0001,
-    MIN_GAS_THRESHOLD: 30
-};
+require('dotenv').config();
 
 const CONTRACT_ABI = [
     {
@@ -1674,433 +1656,125 @@ const CONTRACT_ABI = [
     }
 ];
 
-class ThreatAnalyzer extends EventEmitter {
-    constructor() { 
-        super(); 
-        this.alertCooldowns = new Map(); 
-    }
+async function debugRevertReason() {
+    console.log('🔬 DEBUGGING SPECIFIC REVERT REASON');
+    console.log('===================================');
     
-    analyzeThreat(txData, aiAnalysis) {
-        const riskScore = aiAnalysis.danger_score || 0;
-        const shouldAlert = riskScore > 40 && (aiAnalysis.is_malicious || riskScore > 50);
-        
-        return { 
-            txData, 
-            aiAnalysis, 
-            riskScore, 
-            severity: this.getSeverity(riskScore), 
-            shouldAlert
-        };
-    }
+    const provider = new ethers.JsonRpcProvider('https://rpc-nebulas-testnet.uniultra.xyz');
+    const wallet = new ethers.Wallet(process.env.MONITOR_PRIVATE_KEY, provider);
+    const contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
     
-    getSeverity(riskScore) { 
-        if (riskScore > 90) return 3; // CRITICAL
-        if (riskScore > 75) return 2; // HIGH
-        if (riskScore > 50) return 1; // MEDIUM
-        return 0; // LOW
-    }
+    const testHash = '0x' + require('crypto').createHash('sha256').update('debug_' + Date.now()).digest('hex');
+    const modelHash = ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2"));
     
-    canAlert(txHash) {
-        const lastAlert = this.alertCooldowns.get(txHash);
-        if (!lastAlert || Date.now() - lastAlert > CONFIG.ALERT_COOLDOWN) { 
-            this.alertCooldowns.set(txHash, Date.now()); 
-            return true; 
-        }
-        return false;
-    }
-}
-
-class CerberusMonitor {
-    constructor() {
-        this.analyzer = new ThreatAnalyzer();
-        this.isRunning = false;
-        this.processedTxs = new Set();
-        this.stats = { 
-            startTime: Date.now(), 
-            totalAnalyzed: 0, 
-            threatsDetected: 0, 
-            alertsSent: 0, 
-            errors: 0, 
-            lastBlock: 0 
-        };
-    }
-
-    async initialize() {
-        console.log('\n🚀 INITIALIZING CERBERUS MONITOR'); 
-        console.log('='.repeat(50));
-        
-        if (!CONFIG.MONITOR_PRIVATE_KEY || CONFIG.MONITOR_PRIVATE_KEY === 'MONITOR_PRIVATE_KEY') {
-            throw new Error('MONITOR_PRIVATE_KEY not configured in .env file');
-        }
-        
-        this.provider = new ethers.JsonRpcProvider(CONFIG.U2U_RPC_HTTP);
-        this.wallet = new ethers.Wallet(CONFIG.MONITOR_PRIVATE_KEY, this.provider);
-        this.contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONTRACT_ABI, this.wallet);
-        
-        const [blockNumber, balance, contractCode] = await Promise.all([
-            this.provider.getBlockNumber(), 
-            this.provider.getBalance(this.wallet.address), 
-            this.provider.getCode(CONFIG.CONTRACT_ADDRESS)
-        ]);
-        
-        if (contractCode === '0x') {
-            throw new Error('Contract not deployed at specified address');
-        }
-        
-        console.log('✅ Blockchain Connection Established'); 
-        console.log(`📦 Current Block: ${blockNumber}`); 
-        console.log(`💳 Monitor Wallet: ${this.wallet.address}`); 
-        console.log(`💰 Balance: ${ethers.formatEther(balance)} U2U`); 
-        console.log(`📜 Contract: ${CONFIG.CONTRACT_ADDRESS}`);
-        
-        // Test role permissions
-        await this.checkPermissions();
-        await this.testAIConnection();
-        this.setupEventListeners();
-        this.stats.lastBlock = blockNumber;
-        
-        console.log('='.repeat(50)); 
-        console.log('✨ Monitor Ready!\n');
-    }
-
-    async checkPermissions() {
-        try {
-            console.log('\n🔐 Checking Permissions...');
-            const AI_ORACLE_ROLE = await this.contract.AI_ORACLE_ROLE();
-            const hasRole = await this.contract.hasRole(AI_ORACLE_ROLE, this.wallet.address);
-            
-            console.log(`🔑 AI_ORACLE_ROLE: ${hasRole ? '✅ GRANTED' : '❌ MISSING'}`);
-            
-            if (!hasRole) {
-                console.log('⚠️  WARNING: Wallet does not have AI_ORACLE_ROLE');
-                console.log('📝 Run grant-role.js script first');
-                throw new Error('Missing AI_ORACLE_ROLE permission');
-            }
-        } catch (error) {
-            if (error.message.includes('Missing AI_ORACLE_ROLE')) {
-                throw error;
-            }
-            console.log('⚠️  Could not check permissions (older contract?)');
-        }
-    }
-
-    async testAIConnection() {
-        try {
-            console.log('\n🤖 Testing AI Sentinel...');
-            const response = await fetch(CONFIG.AI_API_URL.replace('/predict', '/'));
-            if (response.ok) {
-                const data = await response.json();
-                console.log(`✅ AI Sentinel: active`);
-                console.log(`   Version: ${data.version || 'v2.0.0-advanced'}`);
-                console.log(`   Model: ${data.isolation_model_loaded ? 'Loaded' : 'Not loaded'}`);
-            } else { 
-                console.warn('⚠️  AI Sentinel not responding properly'); 
-            }
-        } catch (error) { 
-            console.warn('⚠️  AI Sentinel offline - using fallback detection'); 
-        }
-    }
-
-    setupEventListeners() {
-        // Listen for contract events
-        this.contract.on('ThreatReported', async (
-            alertId, txHash, flaggedAddress, level, category, confidence, reporter, timestamp, modelHash
-        ) => {
-            console.log(`\n🚨 ALERT CONFIRMED ON-CHAIN!`);
-            console.log(`📊 Alert ID: ${alertId}`);
-            console.log(`🔍 TX Hash: ${txHash}`);
-            console.log(`👤 Flagged: ${flaggedAddress}`);
-            console.log(`⚠️  Level: ${level} | Category: ${category}`);
-            console.log(`🎯 Confidence: ${confidence}%`);
-            console.log('='.repeat(50));
-
-            try {
-                console.log(`🗳️  Auto-validating alert ${alertId} as validator...`);
-                const tx = await this.contract.validateThreatWithConsensus(
-                    alertId,
-                    true,  // _isConfirming
-                    90,    // _confidence (0-100)
-                    "Auto-validation by monitor",
-                    "0x",  // extra data
-                    { value: ethers.parseEther("0.01"), gasLimit: 300000 }
-                );
-                console.log(`✅ Validation sent: ${tx.hash}`);
-                const receipt = await tx.wait();
-                console.log(`⚡ Validation confirmed in block ${receipt.blockNumber}`);
-            } catch (err) {
-                console.error(`❌ Auto-validation failed: ${err.message}`);
-            }
-        });
-
-
-        process.on('SIGINT', () => this.shutdown());
-        process.on('SIGTERM', () => this.shutdown());
-    }
-
-    async start() {
-        if (this.isRunning) return;
-        console.log('🔄 Starting monitoring loop...\n');
-        this.isRunning = true;
-        
-        while (this.isRunning) {
-            try {
-                const currentBlock = await this.provider.getBlockNumber();
-                if (currentBlock > this.stats.lastBlock) {
-                    const lastProcessedBlock = await this.processBlocks(this.stats.lastBlock + 1, currentBlock);
-                    this.stats.lastBlock = lastProcessedBlock;
-                }
-                await this.sleep(CONFIG.POLLING_INTERVAL);
-            } catch (error) {
-                console.error('❌ Monitoring loop error:', error.message); 
-                this.stats.errors++; 
-                await this.sleep(CONFIG.POLLING_INTERVAL * 2);
-            }
-        }
-    }
-
-    async processBlocks(startBlock, endBlock) {
-        const blockCount = Math.min(endBlock - startBlock + 1, CONFIG.BATCH_SIZE);
-        const lastBlockToProcess = startBlock + blockCount - 1;
-        
-        for (let blockNum = startBlock; blockNum <= lastBlockToProcess; blockNum++) {
-            await this.processBlock(blockNum);
-        }
-        return lastBlockToProcess;
-    }
-
-    async processBlock(blockNumber) {
-        try {
-            const block = await this.provider.getBlock(blockNumber, true);
-            if (!block || !block.prefetchedTransactions || block.prefetchedTransactions.length === 0) return;
-            
-            console.log(`📦 Processing block ${blockNumber} with ${block.prefetchedTransactions.length} transactions`);
-            
-            for (const tx of block.prefetchedTransactions) {
-                if (!this.processedTxs.has(tx.hash)) { 
-                    await this.analyzeTransaction(tx); 
-                    this.processedTxs.add(tx.hash); 
-                }
-            }
-        } catch (error) { 
-            console.error(`Error processing block ${blockNumber}:`, error.message); 
-        }
-    }
-
-    async analyzeTransaction(tx) {
-        if (!tx || !tx.hash) { 
-            console.log('   ⏩ Skipping transaction with no hash.'); 
-            return; 
-        }
-        
-        try {
-            const txData = { 
-                hash: tx.hash, 
-                from: tx.from, 
-                to: tx.to, 
-                value: tx.value.toString(), 
-                gasPrice: tx.gasPrice.toString(), 
-                data: tx.data, 
-                nonce: tx.nonce 
-            };
-            
-            const gasPrice = parseFloat(ethers.formatUnits(txData.gasPrice, 'gwei'));
-            const value = parseFloat(ethers.formatEther(txData.value));
-            
-            if (value < CONFIG.MIN_VALUE_THRESHOLD && gasPrice < CONFIG.MIN_GAS_THRESHOLD && txData.to) return;
-
-            console.log(`   🔍 Analyzing: ${tx.hash.substring(0, 10)}... | From: ${tx.from.substring(0,10)}...`);
-            this.stats.totalAnalyzed++;
-            
-            const aiAnalysis = await this.getAIAnalysis(txData);
-            const threat = this.analyzer.analyzeThreat(txData, aiAnalysis);
-            
-            // Force alert for high gas prices (testing)
-            if (gasPrice > 100) {
-                threat.riskScore = 85;
-                threat.shouldAlert = true;
-                aiAnalysis.is_malicious = true;
-                aiAnalysis.threat_signature = "FORCED: High Gas Price Attack";
-                console.log(`      -> ⚠️ OVERRIDE: Forcing alert for high gas (${gasPrice} gwei)`);
-            }
-            
-            console.log(`      -> 📊 Risk: ${threat.riskScore.toFixed(1)} | Malicious: ${threat.shouldAlert ? '🚨 YES' : '✅ NO'}`);
-            
-            if (threat.shouldAlert && this.analyzer.canAlert(txData.hash)) {
-                console.log(`      -> 🚨 THREAT DETECTED! Signature: ${aiAnalysis.threat_signature}`); 
-                this.stats.threatsDetected++; 
-                await this.sendOnChainAlert(threat);
-            }
-        } catch (error) { 
-            console.error(`❌ Error analyzing tx ${tx.hash}:`, error.message); 
-            this.stats.errors++; 
-        }
-    }
-
-    async getAIAnalysis(txData) {
-        try {
-            const response = await fetch(CONFIG.AI_API_URL, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(txData) 
-            });
-            if (response.ok) return await response.json();
-        } catch (error) { 
-            /* Fallback below */ 
-        }
-        return { 
-            danger_score: 0, 
-            is_malicious: false, 
-            threat_signature: 'FALLBACK: AI unreachable' 
-        };
-    }
-
-    generateValidHash(inputString) {
-        const crypto = require('crypto');
-        return '0x' + crypto.createHash('sha256').update(inputString).digest('hex');
-    }
-
-    async sendOnChainAlert(threat) {
-        try {
-            const { txData, aiAnalysis, severity, riskScore } = threat;
-            console.log('      -> ⛓️  Sending on-chain alert...');
-            
-            let validHash = txData.hash;
-            if (txData.hash.startsWith('0xtest')) {
-                validHash = ethers.keccak256(ethers.toUtf8Bytes('monitor_' + Date.now()));
-                console.log(`      -> 🔧 Generated valid hash: ${validHash}`);
-            }
-            
-            const params = [ 
-                validHash,         // bytes32 _txHash
-                txData.from,       // address _flaggedAddress
-                [],                // address[] _relatedAddresses (empty)
-                Math.min(severity, 3), // uint8 _level (max 3)
-                1,                 // uint8 _category (1 = RUG_PULL, proven working)
-                90,                // uint256 _confidenceScore (proven working)
-                Math.min(Math.floor(riskScore), 100), // uint256 _severityScore
-                "Alert",           // string _description (minimal, proven working)
-                "0x",              // bytes _additionalData (empty)
-                ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2")), // bytes32 _modelHash
-                0,                 // uint256 _economicImpact
-                []                 // bytes32[] _relatedAlerts (empty)
-            ];
-            
-            const tx = await this.contract.reportAdvancedThreat(...params, { 
-                value: ethers.parseEther("0.01"), 
-                gasLimit: 800000  // Higher gas limit proven working
-            });
-            
-            console.log(`      -> ✅ Alert sent! Tx: ${tx.hash.substring(0,12)}...`);
-            this.stats.alertsSent++;
-            
-            const receipt = await tx.wait();
-            console.log(`      -> ⚡ Alert confirmed in block: ${receipt.blockNumber}`);
-            console.log(`      -> ⛽ Gas used: ${receipt.gasUsed}`);
-            
-        } catch (error) {
-            if (error.message.includes('already reported')) {
-                console.log('      -> ⚠️  Transaction already reported.');
-            } else {
-                console.error('      -> ❌ On-chain alert failed:', error.message);
-            }
-        }
-    }
-
-    printStats() {
-        const uptime = Math.floor((Date.now() - this.stats.startTime) / 1000);
-        console.log(`\n📊 STATS: Uptime: ${uptime}s | Analyzed: ${this.stats.totalAnalyzed} | Threats: ${this.stats.threatsDetected} | Alerts: ${this.stats.alertsSent} | Errors: ${this.stats.errors}\n`);
-    }
-
-    async shutdown() {
-        if (!this.isRunning) return;
-        console.log('\n\n🛑 Shutting down monitor...'); 
-        this.isRunning = false;
-        this.printStats();
-        
-        try {
-            await fs.writeFile(path.join(__dirname, 'monitor_state.json'), JSON.stringify({ 
-                stats: this.stats, 
-                timestamp: Date.now() 
-            }, null, 2));
-            console.log('💾 State saved');
-        } catch (error) { 
-            console.error('Failed to save state:', error.message); 
-        }
-        
-        console.log('✅ Monitor shutdown complete');
-        process.exit(0);
-    }
+    console.log('📝 Test Hash:', testHash);
+    console.log('🔑 Model Hash:', modelHash);
     
-    sleep(ms) { 
-        return new Promise(resolve => setTimeout(resolve, ms)); 
-    }
-}
-
-async function main() {
-    const monitor = new CerberusMonitor();
     try {
-        await monitor.initialize();
-
-        console.log("\n🔥 FORCING TEST TRANSACTION");
-        const testTx = {
-            hash: '0x' + require('crypto').createHash('sha256').update('test_' + Date.now()).digest('hex'),
-            from: '0xfe89f390C1cf3D6b83171D41bEEF4A3E3A763fAE',
-            to: null, // Contract creation
-            value: ethers.parseEther('10').toString(),
-            gasPrice: ethers.parseUnits('150', 'gwei').toString(),
-            gasLimit: '500000',
-            data: '0x60806040',
-            nonce: 1
-        };
-        await monitor.analyzeTransaction(testTx);
-        console.log("🔥 TEST COMPLETE\n");
+        // Check contract state first
+        console.log('\n🔍 Checking contract state...');
+        const isPaused = await contract.paused();
+        console.log('Contract paused:', isPaused ? 'YES' : 'NO');
         
-        // Start real monitoring
-        await testGuardian(monitor);
-        await testValidator(monitor, 1);
-        await monitor.start();
+        const alreadyReported = await contract.reportedTransactions(testHash);
+        console.log('Already reported:', alreadyReported ? 'YES' : 'NO');
+        
+        const modelInfo = await contract.mlModels(modelHash);
+        console.log('Model active:', modelInfo[9] ? 'YES' : 'NO');
+        
+        // Try with minimal parameters first
+        console.log('\n🧪 Testing with minimal parameters...');
+        const minimalParams = [
+            testHash,           // _txHash
+            wallet.address,     // _flaggedAddress
+            [],                 // _relatedAddresses (empty array)
+            1,                  // _level (MEDIUM)
+            1,                  // _category (RUG_PULL)
+            85,                 // _confidenceScore
+            85,                 // _severityScore
+            "Test Alert",       // _description (short string)
+            "0x",              // _additionalData (empty)
+            modelHash,         // _modelHash
+            0,                 // _economicImpact
+            []                 // _relatedAlerts (empty array)
+        ];
+        
+        // Try static call first (doesn't actually execute)
+        console.log('🔍 Testing with static call...');
+        try {
+            await contract.reportAdvancedThreat.staticCall(...minimalParams, {
+                value: ethers.parseEther("0.01")
+            });
+            console.log('✅ Static call successful');
+        } catch (staticError) {
+            console.log('❌ Static call failed:', staticError.reason || staticError.message);
+            
+            // Try to extract specific error
+            if (staticError.reason) {
+                console.log('📋 Revert reason:', staticError.reason);
+            } else if (staticError.data) {
+                console.log('📋 Error data:', staticError.data);
+            }
+        }
+        
+        // Try with different parameter combinations
+        console.log('\n🧪 Testing parameter variations...');
+        
+        // Test 1: Different threat level
+        const params1 = [...minimalParams];
+        params1[3] = 0; // Level = LOW
+        try {
+            await contract.reportAdvancedThreat.staticCall(...params1, {
+                value: ethers.parseEther("0.01")
+            });
+            console.log('✅ Test 1 (LOW level): SUCCESS');
+        } catch (error) {
+            console.log('❌ Test 1 (LOW level):', error.reason || 'Failed');
+        }
+        
+        // Test 2: Higher confidence
+        const params2 = [...minimalParams];
+        params2[5] = 95; // Higher confidence
+        try {
+            await contract.reportAdvancedThreat.staticCall(...params2, {
+                value: ethers.parseEther("0.01")
+            });
+            console.log('✅ Test 2 (High confidence): SUCCESS');
+        } catch (error) {
+            console.log('❌ Test 2 (High confidence):', error.reason || 'Failed');
+        }
+        
+        // Test 3: Higher stake
+        const params3 = [...minimalParams];
+        try {
+            await contract.reportAdvancedThreat.staticCall(...params3, {
+                value: ethers.parseEther("0.02")
+            });
+            console.log('✅ Test 3 (Higher stake): SUCCESS');
+        } catch (error) {
+            console.log('❌ Test 3 (Higher stake):', error.reason || 'Failed');
+        }
+        
+        // Test 4: Different category
+        const params4 = [...minimalParams];
+        params4[4] = 3; // Category = FRONT_RUNNING
+        try {
+            await contract.reportAdvancedThreat.staticCall(...params4, {
+                value: ethers.parseEther("0.01")
+            });
+            console.log('✅ Test 4 (Different category): SUCCESS');
+        } catch (error) {
+            console.log('❌ Test 4 (Different category):', error.reason || 'Failed');
+        }
         
     } catch (error) {
-        console.error('FATAL:', error.message); 
-        process.exit(1);
+        console.error('❌ Debug failed:', error.message);
     }
 }
 
-async function testGuardian(monitor) {
-    console.log("\n🛡️ Testing Guardian Role (pause/unpause)...");
-    try {
-        const paused = await monitor.contract.paused();
-        console.log("   Current state:", paused ? "⏸️ Paused" : "▶️ Active");
-
-        const txPause = await monitor.contract.emergencyPause({ gasLimit: 200000 });
-        await txPause.wait();
-        console.log("✅ Contract paused");
-
-        const txUnpause = await monitor.contract.emergencyUnpause({ gasLimit: 200000 });
-        await txUnpause.wait();
-        console.log("✅ Contract unpaused");
-    } catch (err) {
-        console.error("❌ Guardian test failed:", err.message);
-    }
-}
-
-async function testValidator(monitor, alertId = 1) {
-    console.log("\n✅ Testing Validator Role (validateThreat)...");
-    try {
-        const tx = await monitor.contract.validateThreatWithConsensus(
-            alertId,        // alertId yang sudah ada
-            true,           // _isConfirming
-            95,             // _confidence
-            "Confirmed malicious transaction", // reasoning
-            "0x",           // additional data
-            { gasLimit: 500000 }
-        );
-        await tx.wait();
-        console.log(`✅ Validator confirmed threat for alertId ${alertId}`);
-    } catch (err) {
-        console.error("❌ Validator test failed:", err.message);
-    }
-}
-
-process.stdin.resume();
-main();
+debugRevertReason().then(() => {
+    process.exit(0);
+}).catch(error => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+});
