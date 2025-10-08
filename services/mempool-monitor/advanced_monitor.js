@@ -1,26 +1,19 @@
 const { ethers } = require('ethers');
 const fetch = require('node-fetch');
-const EventEmitter = require('events');
-const fs = require('fs').promises;
-const path = require('path');
 const dotenv = require('dotenv');
+const path = require('path');
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const CONFIG = {
-    U2U_RPC_HTTP: 'https://rpc-nebulas-testnet.uniultra.xyz',
-    AI_API_URL: process.env.AI_API_URL || 'http://127.0.0.1:5001/predict',
+    U2U_RPC_HTTP: process.env.U2U_RPC_HTTP || 'https://rpc-nebulas-testnet.uniultra.xyz',
+    AI_API_URL: process.env.AI_API_URL || 'https://<NAMA-PROYEK-ANDA>.vercel.app/api/sentinel',
     MONITOR_PRIVATE_KEY: process.env.MONITOR_PRIVATE_KEY,
     CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS,
-    POLLING_INTERVAL: 3000,
-    BATCH_SIZE: 10,
-    ALERT_COOLDOWN: 30000,
-    MIN_VALUE_THRESHOLD: 0.0001,
-    MIN_GAS_THRESHOLD: 30
 };
 
 const CONTRACT_ABI = [
-    {
+  {
       "inputs": [],
       "stateMutability": "nonpayable",
       "type": "constructor"
@@ -1674,433 +1667,182 @@ const CONTRACT_ABI = [
     }
 ];
 
-class ThreatAnalyzer extends EventEmitter {
-    constructor() { 
-        super(); 
-        this.alertCooldowns = new Map(); 
+
+let cachedConnections = null;
+
+function getConnections() {
+    if (cachedConnections) {
+        return cachedConnections;
     }
+    console.log("Inisialisasi koneksi baru ke blockchain...");
+    const provider = new ethers.JsonRpcProvider(CONFIG.U2U_RPC_HTTP);
+    const wallet = new ethers.Wallet(CONFIG.MONITOR_PRIVATE_KEY, provider);
+    const contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
     
+    cachedConnections = { provider, wallet, contract };
+    return cachedConnections;
+}
+
+class ThreatAnalyzer {
     analyzeThreat(txData, aiAnalysis) {
         const riskScore = aiAnalysis.danger_score || 0;
-        const shouldAlert = riskScore > 40 && (aiAnalysis.is_malicious || riskScore > 50);
+        const shouldAlert = aiAnalysis.is_malicious || riskScore > 75;
         
-        return { 
-            txData, 
-            aiAnalysis, 
-            riskScore, 
-            severity: this.getSeverity(riskScore), 
+        return {
+            txData: {
+                hash: txData.hash,
+                from: txData.from,
+                to: txData.to,
+            },
+            aiAnalysis,
+            riskScore,
+            severity: this.mapRiskToSeverity(riskScore),
             shouldAlert
         };
     }
-    
-    getSeverity(riskScore) { 
+
+    mapRiskToSeverity(riskScore) {
         if (riskScore > 90) return 3; // CRITICAL
         if (riskScore > 75) return 2; // HIGH
         if (riskScore > 50) return 1; // MEDIUM
         return 0; // LOW
     }
-    
-    canAlert(txHash) {
-        const lastAlert = this.alertCooldowns.get(txHash);
-        if (!lastAlert || Date.now() - lastAlert > CONFIG.ALERT_COOLDOWN) { 
-            this.alertCooldowns.set(txHash, Date.now()); 
-            return true; 
-        }
-        return false;
-    }
 }
 
-class CerberusMonitor {
-    constructor() {
-        this.analyzer = new ThreatAnalyzer();
-        this.isRunning = false;
-        this.processedTxs = new Set();
-        this.stats = { 
-            startTime: Date.now(), 
-            totalAnalyzed: 0, 
-            threatsDetected: 0, 
-            alertsSent: 0, 
-            errors: 0, 
-            lastBlock: 0 
-        };
+module.exports = async (req, res) => {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    async initialize() {
-        console.log('\n🚀 INITIALIZING CERBERUS MONITOR'); 
-        console.log('='.repeat(50));
-        
-        if (!CONFIG.MONITOR_PRIVATE_KEY || CONFIG.MONITOR_PRIVATE_KEY === 'MONITOR_PRIVATE_KEY') {
-            throw new Error('MONITOR_PRIVATE_KEY not configured in .env file');
-        }
-        
-        this.provider = new ethers.JsonRpcProvider(CONFIG.U2U_RPC_HTTP);
-        this.wallet = new ethers.Wallet(CONFIG.MONITOR_PRIVATE_KEY, this.provider);
-        this.contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONTRACT_ABI, this.wallet);
-        
-        const [blockNumber, balance, contractCode] = await Promise.all([
-            this.provider.getBlockNumber(), 
-            this.provider.getBalance(this.wallet.address), 
-            this.provider.getCode(CONFIG.CONTRACT_ADDRESS)
-        ]);
-        
-        if (contractCode === '0x') {
-            throw new Error('Contract not deployed at specified address');
-        }
-        
-        console.log('✅ Blockchain Connection Established'); 
-        console.log(`📦 Current Block: ${blockNumber}`); 
-        console.log(`💳 Monitor Wallet: ${this.wallet.address}`); 
-        console.log(`💰 Balance: ${ethers.formatEther(balance)} U2U`); 
-        console.log(`📜 Contract: ${CONFIG.CONTRACT_ADDRESS}`);
-        
-        // Test role permissions
-        await this.checkPermissions();
-        await this.testAIConnection();
-        this.setupEventListeners();
-        this.stats.lastBlock = blockNumber;
-        
-        console.log('='.repeat(50)); 
-        console.log('✨ Monitor Ready!\n');
+    const txData = req.body;
+    if (!txData || typeof txData !== 'object' || !txData.hash) {
+        return res.status(400).json({ error: 'Body request harus berupa objek JSON transaksi yang valid dengan properti "hash".' });
     }
 
-    async checkPermissions() {
-        try {
-            console.log('\n🔐 Checking Permissions...');
-            const AI_ORACLE_ROLE = await this.contract.AI_ORACLE_ROLE();
-            const hasRole = await this.contract.hasRole(AI_ORACLE_ROLE, this.wallet.address);
+    console.log(`[Request Diterima] Menganalisis transaksi: ${txData.hash}`);
+
+    try {
+        const { contract } = getConnections();
+        const analyzer = new ThreatAnalyzer();
+
+        const aiAnalysis = await getAIAnalysis(txData);
+        if (aiAnalysis.error) {
+            throw new Error(`Gagal mendapatkan analisis AI: ${aiAnalysis.error}`);
+        }
+
+        const threat = analyzer.analyzeThreat(txData, aiAnalysis);
+        console.log(`[Hasil Analisis] Risk: ${threat.riskScore.toFixed(1)} | Alert: ${threat.shouldAlert}`);
+
+        if (threat.shouldAlert) {
+            console.log(`[Aksi] Ancaman terdeteksi! Mengirim peringatan on-chain...`);
+            const alertResult = await sendOnChainAlert(threat, contract);
             
-            console.log(`🔑 AI_ORACLE_ROLE: ${hasRole ? '✅ GRANTED' : '❌ MISSING'}`);
+            if (!alertResult.success) {
+                 return res.status(500).json({
+                    status: 'threat_detected_but_report_failed',
+                    analysis: threat,
+                    onChainError: alertResult.error
+                });
+            }
             
-            if (!hasRole) {
-                console.log('⚠️  WARNING: Wallet does not have AI_ORACLE_ROLE');
-                console.log('📝 Run grant-role.js script first');
-                throw new Error('Missing AI_ORACLE_ROLE permission');
-            }
-        } catch (error) {
-            if (error.message.includes('Missing AI_ORACLE_ROLE')) {
-                throw error;
-            }
-            console.log('⚠️  Could not check permissions (older contract?)');
+            return res.status(200).json({
+                status: 'threat_detected_and_reported',
+                analysis: threat,
+                onChainResult: alertResult
+            });
         }
-    }
 
-    async testAIConnection() {
-        try {
-            console.log('\n🤖 Testing AI Sentinel...');
-            const response = await fetch(CONFIG.AI_API_URL.replace('/predict', '/'));
-            if (response.ok) {
-                const data = await response.json();
-                console.log(`✅ AI Sentinel: active`);
-                console.log(`   Version: ${data.version || 'v2.0.0-advanced'}`);
-                console.log(`   Model: ${data.isolation_model_loaded ? 'Loaded' : 'Not loaded'}`);
-            } else { 
-                console.warn('⚠️  AI Sentinel not responding properly'); 
-            }
-        } catch (error) { 
-            console.warn('⚠️  AI Sentinel offline - using fallback detection'); 
-        }
-    }
-
-    setupEventListeners() {
-        // Listen for contract events
-        this.contract.on('ThreatReported', async (
-            alertId, txHash, flaggedAddress, level, category, confidence, reporter, timestamp, modelHash
-        ) => {
-            console.log(`\n🚨 ALERT CONFIRMED ON-CHAIN!`);
-            console.log(`📊 Alert ID: ${alertId}`);
-            console.log(`🔍 TX Hash: ${txHash}`);
-            console.log(`👤 Flagged: ${flaggedAddress}`);
-            console.log(`⚠️  Level: ${level} | Category: ${category}`);
-            console.log(`🎯 Confidence: ${confidence}%`);
-            console.log('='.repeat(50));
-
-            try {
-                console.log(`🗳️  Auto-validating alert ${alertId} as validator...`);
-                const tx = await this.contract.validateThreatWithConsensus(
-                    alertId,
-                    true,  // _isConfirming
-                    90,    // _confidence (0-100)
-                    "Auto-validation by monitor",
-                    "0x",  // extra data
-                    { value: ethers.parseEther("0.01"), gasLimit: 300000 }
-                );
-                console.log(`✅ Validation sent: ${tx.hash}`);
-                const receipt = await tx.wait();
-                console.log(`⚡ Validation confirmed in block ${receipt.blockNumber}`);
-            } catch (err) {
-                console.error(`❌ Auto-validation failed: ${err.message}`);
-            }
+        return res.status(200).json({
+            status: 'analysis_complete_no_threat_found',
+            analysis: threat
         });
 
-
-        process.on('SIGINT', () => this.shutdown());
-        process.on('SIGTERM', () => this.shutdown());
-    }
-
-    async start() {
-        if (this.isRunning) return;
-        console.log('🔄 Starting monitoring loop...\n');
-        this.isRunning = true;
-        
-        while (this.isRunning) {
-            try {
-                const currentBlock = await this.provider.getBlockNumber();
-                if (currentBlock > this.stats.lastBlock) {
-                    const lastProcessedBlock = await this.processBlocks(this.stats.lastBlock + 1, currentBlock);
-                    this.stats.lastBlock = lastProcessedBlock;
-                }
-                await this.sleep(CONFIG.POLLING_INTERVAL);
-            } catch (error) {
-                console.error('❌ Monitoring loop error:', error.message); 
-                this.stats.errors++; 
-                await this.sleep(CONFIG.POLLING_INTERVAL * 2);
-            }
-        }
-    }
-
-    async processBlocks(startBlock, endBlock) {
-        const blockCount = Math.min(endBlock - startBlock + 1, CONFIG.BATCH_SIZE);
-        const lastBlockToProcess = startBlock + blockCount - 1;
-        
-        for (let blockNum = startBlock; blockNum <= lastBlockToProcess; blockNum++) {
-            await this.processBlock(blockNum);
-        }
-        return lastBlockToProcess;
-    }
-
-    async processBlock(blockNumber) {
-        try {
-            const block = await this.provider.getBlock(blockNumber, true);
-            if (!block || !block.prefetchedTransactions || block.prefetchedTransactions.length === 0) return;
-            
-            console.log(`📦 Processing block ${blockNumber} with ${block.prefetchedTransactions.length} transactions`);
-            
-            for (const tx of block.prefetchedTransactions) {
-                if (!this.processedTxs.has(tx.hash)) { 
-                    await this.analyzeTransaction(tx); 
-                    this.processedTxs.add(tx.hash); 
-                }
-            }
-        } catch (error) { 
-            console.error(`Error processing block ${blockNumber}:`, error.message); 
-        }
-    }
-
-    async analyzeTransaction(tx) {
-        if (!tx || !tx.hash) { 
-            console.log('   ⏩ Skipping transaction with no hash.'); 
-            return; 
-        }
-        
-        try {
-            const txData = { 
-                hash: tx.hash, 
-                from: tx.from, 
-                to: tx.to, 
-                value: tx.value.toString(), 
-                gasPrice: tx.gasPrice.toString(), 
-                data: tx.data, 
-                nonce: tx.nonce 
-            };
-            
-            const gasPrice = parseFloat(ethers.formatUnits(txData.gasPrice, 'gwei'));
-            const value = parseFloat(ethers.formatEther(txData.value));
-            
-            if (value < CONFIG.MIN_VALUE_THRESHOLD && gasPrice < CONFIG.MIN_GAS_THRESHOLD && txData.to) return;
-
-            console.log(`   🔍 Analyzing: ${tx.hash.substring(0, 10)}... | From: ${tx.from.substring(0,10)}...`);
-            this.stats.totalAnalyzed++;
-            
-            const aiAnalysis = await this.getAIAnalysis(txData);
-            const threat = this.analyzer.analyzeThreat(txData, aiAnalysis);
-            
-            // Force alert for high gas prices (testing)
-            if (gasPrice > 100) {
-                threat.riskScore = 85;
-                threat.shouldAlert = true;
-                aiAnalysis.is_malicious = true;
-                aiAnalysis.threat_signature = "FORCED: High Gas Price Attack";
-                console.log(`      -> ⚠️ OVERRIDE: Forcing alert for high gas (${gasPrice} gwei)`);
-            }
-            
-            console.log(`      -> 📊 Risk: ${threat.riskScore.toFixed(1)} | Malicious: ${threat.shouldAlert ? '🚨 YES' : '✅ NO'}`);
-            
-            if (threat.shouldAlert && this.analyzer.canAlert(txData.hash)) {
-                console.log(`      -> 🚨 THREAT DETECTED! Signature: ${aiAnalysis.threat_signature}`); 
-                this.stats.threatsDetected++; 
-                await this.sendOnChainAlert(threat);
-            }
-        } catch (error) { 
-            console.error(`❌ Error analyzing tx ${tx.hash}:`, error.message); 
-            this.stats.errors++; 
-        }
-    }
-
-    async getAIAnalysis(txData) {
-        try {
-            const response = await fetch(CONFIG.AI_API_URL, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(txData) 
-            });
-            if (response.ok) return await response.json();
-        } catch (error) { 
-            /* Fallback below */ 
-        }
-        return { 
-            danger_score: 0, 
-            is_malicious: false, 
-            threat_signature: 'FALLBACK: AI unreachable' 
-        };
-    }
-
-    generateValidHash(inputString) {
-        const crypto = require('crypto');
-        return '0x' + crypto.createHash('sha256').update(inputString).digest('hex');
-    }
-
-    async sendOnChainAlert(threat) {
-        try {
-            const { txData, aiAnalysis, severity, riskScore } = threat;
-            console.log('      -> ⛓️  Sending on-chain alert...');
-            
-            let validHash = txData.hash;
-            if (txData.hash.startsWith('0xtest')) {
-                validHash = ethers.keccak256(ethers.toUtf8Bytes('monitor_' + Date.now()));
-                console.log(`      -> 🔧 Generated valid hash: ${validHash}`);
-            }
-            
-            const params = [ 
-                validHash,         // bytes32 _txHash
-                txData.from,       // address _flaggedAddress
-                [],                // address[] _relatedAddresses (empty)
-                Math.min(severity, 3), // uint8 _level (max 3)
-                1,                 // uint8 _category (1 = RUG_PULL, proven working)
-                90,                // uint256 _confidenceScore (proven working)
-                Math.min(Math.floor(riskScore), 100), // uint256 _severityScore
-                "Alert",           // string _description (minimal, proven working)
-                "0x",              // bytes _additionalData (empty)
-                ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2")), // bytes32 _modelHash
-                0,                 // uint256 _economicImpact
-                []                 // bytes32[] _relatedAlerts (empty)
-            ];
-            
-            const tx = await this.contract.reportAdvancedThreat(...params, { 
-                value: ethers.parseEther("0.01"), 
-                gasLimit: 800000  // Higher gas limit proven working
-            });
-            
-            console.log(`      -> ✅ Alert sent! Tx: ${tx.hash.substring(0,12)}...`);
-            this.stats.alertsSent++;
-            
-            const receipt = await tx.wait();
-            console.log(`      -> ⚡ Alert confirmed in block: ${receipt.blockNumber}`);
-            console.log(`      -> ⛽ Gas used: ${receipt.gasUsed}`);
-            
-        } catch (error) {
-            if (error.message.includes('already reported')) {
-                console.log('      -> ⚠️  Transaction already reported.');
-            } else {
-                console.error('      -> ❌ On-chain alert failed:', error.message);
-            }
-        }
-    }
-
-    printStats() {
-        const uptime = Math.floor((Date.now() - this.stats.startTime) / 1000);
-        console.log(`\n📊 STATS: Uptime: ${uptime}s | Analyzed: ${this.stats.totalAnalyzed} | Threats: ${this.stats.threatsDetected} | Alerts: ${this.stats.alertsSent} | Errors: ${this.stats.errors}\n`);
-    }
-
-    async shutdown() {
-        if (!this.isRunning) return;
-        console.log('\n\n🛑 Shutting down monitor...'); 
-        this.isRunning = false;
-        this.printStats();
-        
-        try {
-            await fs.writeFile(path.join(__dirname, 'monitor_state.json'), JSON.stringify({ 
-                stats: this.stats, 
-                timestamp: Date.now() 
-            }, null, 2));
-            console.log('💾 State saved');
-        } catch (error) { 
-            console.error('Failed to save state:', error.message); 
-        }
-        
-        console.log('✅ Monitor shutdown complete');
-        process.exit(0);
-    }
-    
-    sleep(ms) { 
-        return new Promise(resolve => setTimeout(resolve, ms)); 
-    }
-}
-
-async function main() {
-    const monitor = new CerberusMonitor();
-    try {
-        await monitor.initialize();
-
-        console.log("\n🔥 FORCING TEST TRANSACTION");
-        const testTx = {
-            hash: '0x' + require('crypto').createHash('sha256').update('test_' + Date.now()).digest('hex'),
-            from: '0xfe89f390C1cf3D6b83171D41bEEF4A3E3A763fAE',
-            to: null, // Contract creation
-            value: ethers.parseEther('10').toString(),
-            gasPrice: ethers.parseUnits('150', 'gwei').toString(),
-            gasLimit: '500000',
-            data: '0x60806040',
-            nonce: 1
-        };
-        await monitor.analyzeTransaction(testTx);
-        console.log("🔥 TEST COMPLETE\n");
-        
-        // Start real monitoring
-        await testGuardian(monitor);
-        await testValidator(monitor, 1);
-        await monitor.start();
-        
     } catch (error) {
-        console.error('FATAL:', error.message); 
-        process.exit(1);
+        console.error(`[FATAL ERROR] Gagal memproses tx ${txData.hash}:`, error);
+        return res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
     }
-}
+};
 
-async function testGuardian(monitor) {
-    console.log("\n🛡️ Testing Guardian Role (pause/unpause)...");
+/**
+ * Menghubungi API AI Sentinel untuk mendapatkan analisis transaksi.
+ * @param {object} txData - Data transaksi yang akan dianalisis.
+ * @returns {Promise<object>} Hasil analisis dari AI.
+ */
+async function getAIAnalysis(txData) {
     try {
-        const paused = await monitor.contract.paused();
-        console.log("   Current state:", paused ? "⏸️ Paused" : "▶️ Active");
+        const response = await fetch(CONFIG.AI_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(txData),
+            timeout: 10000 // Timeout 10 detik
+        });
 
-        const txPause = await monitor.contract.emergencyPause({ gasLimit: 200000 });
-        await txPause.wait();
-        console.log("✅ Contract paused");
-
-        const txUnpause = await monitor.contract.emergencyUnpause({ gasLimit: 200000 });
-        await txUnpause.wait();
-        console.log("✅ Contract unpaused");
-    } catch (err) {
-        console.error("❌ Guardian test failed:", err.message);
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.warn(`[Peringatan AI] AI Sentinel merespons dengan status ${response.status}: ${errorBody}`);
+            return { error: `HTTP status ${response.status}` };
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('[Kesalahan AI] Tidak dapat menghubungi AI Sentinel:', error.message);
+        // Fallback jika API AI gagal total
+        return {
+            danger_score: 0,
+            is_malicious: false,
+            threat_signature: `FALLBACK: AI unreachable (${error.message})`,
+        };
     }
 }
 
-async function testValidator(monitor, alertId = 1) {
-    console.log("\n✅ Testing Validator Role (validateThreat)...");
+/**
+ * Mengirimkan peringatan ancaman ke smart contract Cerberus.
+ * @param {object} threat - Objek hasil analisis ancaman.
+ * @param {ethers.Contract} contract - Instance dari smart contract.
+ * @returns {Promise<object>} Hasil dari transaksi on-chain.
+ */
+async function sendOnChainAlert(threat, contract) {
+    const { txData, severity, riskScore } = threat;
+
+    // Menyiapkan parameter sesuai dengan fungsi reportAdvancedThreat di smart contract Anda
+    const params = [
+        txData.hash,                            // bytes32 _txHash
+        txData.from,                            // address _flaggedAddress
+        [],                                     // address[] _relatedAddresses
+        Math.min(severity, 3),                  // enum ThreatLevel _level
+        1,                                      // enum ThreatCategory _category (contoh: 1 = RUG_PULL)
+        95,                                     // uint256 _confidenceScore
+        Math.min(Math.floor(riskScore), 100),   // uint256 _severityScore
+        `Vercel Monitor Alert: Score ${riskScore.toFixed(1)}`, // string _description
+        "0x",                                   // bytes _additionalData
+        ethers.keccak256(ethers.toUtf8Bytes("cerberus-v2-serverless")), // bytes32 _modelHash
+        0,                                      
+        []                                      
+    ];
+
     try {
-        const tx = await monitor.contract.validateThreatWithConsensus(
-            alertId,        // alertId yang sudah ada
-            true,           // _isConfirming
-            95,             // _confidence
-            "Confirmed malicious transaction", // reasoning
-            "0x",           // additional data
-            { gasLimit: 500000 }
-        );
-        await tx.wait();
-        console.log(`✅ Validator confirmed threat for alertId ${alertId}`);
-    } catch (err) {
-        console.error("❌ Validator test failed:", err.message);
+        const estimatedGas = await contract.reportAdvancedThreat.estimateGas(...params, {
+            value: ethers.parseEther("0.01")
+        });
+        
+        const tx = await contract.reportAdvancedThreat(...params, {
+            value: ethers.parseEther("0.01"),
+            gasLimit: estimatedGas * BigInt(12) / BigInt(10)
+        });
+
+        console.log(`[On-Chain] Peringatan berhasil dikirim. Menunggu konfirmasi... Tx: ${tx.hash}`);
+
+        return { success: true, txHash: tx.hash };
+
+    } catch (error) {
+        const errorMessage = error.reason || error.message;
+        console.error(`[Kesalahan On-Chain] Gagal mengirim peringatan:`, errorMessage);
+        
+        if (errorMessage.includes('already reported')) {
+            return { success: false, error: 'Transaksi sudah pernah dilaporkan.' };
+        }
+        return { success: false, error: errorMessage };
     }
 }
-
-process.stdin.resume();
-main();

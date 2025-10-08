@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "services/ai-sentinel/advanced_ai_sentinel.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "services/mempool-monitor/advanced_monitor.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/sentinel",
+      "destination": "/services/ai-sentinel/advanced_ai_sentinel.py"
+    },
+    {
+      "source": "/api/monitor",
+      "destination": "/services/mempool-monitor/advanced_monitor.js"
+    }
+  ]
+}
