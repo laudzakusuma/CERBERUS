@@ -1,0 +1,10 @@
+# Abaikan folder smart contract, tidak perlu di-deploy ke Vercel
+contracts/
+
+# Abaikan file konfigurasi dan cache lokal yang tidak relevan
+.vscode/
+__pycache__/
+node_modules/
+.env
+*.db
+*.backup
