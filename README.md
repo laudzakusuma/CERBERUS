@@ -1,21 +1,21 @@
-<<<<<<< HEAD
-# 🐕 Cerberus Watchdog: On-Chain AI Threat Detection
+# Cerberus Watchdog: On-Chain AI Threat Detection
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![U2U Network](https://img.shields.io/badge/Network-U2U%20Testnet-blue)](https://u2u.xyz)
 [![Built for VietBUILD](https://img.shields.io/badge/Built%20for-VietBUILD%20Hackathon-green)](https://hackathon.u2u.xyz)
+[![Built for BI-OJK Hackathon](https://img.shields.io/badge/Built%20for-BI--OJK%20Hackathon-green)](https://GANTI_DENGAN_URL_HACKATHON)
 
 **Cerberus Watchdog** adalah sistem AI otonom yang memantau U2U Network secara real-time untuk mendeteksi dan menandai transaksi berbahaya sebelum dieksekusi. Ancaman yang terdeteksi dicatat secara on-chain untuk menciptakan lapisan reputasi yang terdesentralisasi dan abadi.
 
-## 🎯 Fitur Utama
+## Fitur Utama
 
-- **🤖 AI-Powered Detection**: Deteksi ancaman menggunakan algoritma machine learning
-- **⚡ Real-time Monitoring**: Monitoring mempool U2U Network secara real-time
-- **🔗 On-chain Recording**: Pencatatan ancaman permanent di blockchain
-- **📊 Advanced Analytics**: Dashboard dan analytics untuk threat intelligence
-- **🛡️ Multi-threat Categories**: Deteksi 10+ kategori ancaman berbeda
+- **AI-Powered Detection**: Deteksi ancaman menggunakan algoritma machine learning
+- **Real-time Monitoring**: Monitoring mempool U2U Network secara real-time
+- **On-chain Recording**: Pencatatan ancaman permanent di blockchain
+- **Advanced Analytics**: Dashboard dan analytics untuk threat intelligence
+- **Multi-threat Categories**: Deteksi 10+ kategori ancaman berbeda
 
-## 🏗️ Arsitektur
+## Arsitektur
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -30,7 +30,7 @@
                        └─────────────────┘
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
