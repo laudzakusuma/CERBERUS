@@ -1,6 +1,5 @@
 ﻿import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
-import "@nomicfoundation/hardhat-verify";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -15,44 +14,28 @@ const config: HardhatUserConfig = {
         enabled: true,
         runs: 200,
       },
-      viaIR: true, // Enable IR optimization for large contracts
+      evmVersion: "cancun", // Latest EVM version for 0.8.28
     },
   },
   networks: {
-    hardhat: {
-      chainId: 31337,
-    },
     u2u_testnet: {
       url: "https://rpc-nebulas-testnet.uniultra.xyz",
       accounts: [PRIVATE_KEY],
       chainId: 2484,
-      gasPrice: 20000000000, // 20 gwei
+      timeout: 60000,
     },
-    u2u_mainnet: {
-      url: "https://rpc-mainnet.uniultra.xyz",
-      accounts: [PRIVATE_KEY],
-      chainId: 39,
-      gasPrice: 20000000000,
+    localhost: {
+      url: "http://127.0.0.1:8545",
     },
   },
-  etherscan: {
-    apiKey: {
-      u2u_testnet: "your-api-key-here", // If U2U has verification API
-    },
-    customChains: [
-      {
-        network: "u2u_testnet",
-        chainId: 2484,
-        urls: {
-          apiURL: "https://testnet.u2uscan.xyz/api",
-          browserURL: "https://testnet.u2uscan.xyz",
-        },
-      },
-    ],
+  paths: {
+    sources: "./contracts",
+    tests: "./test",
+    cache: "./cache",
+    artifacts: "./artifacts",
   },
-  gasReporter: {
-    enabled: process.env.REPORT_GAS !== undefined,
-    currency: "USD",
+  mocha: {
+    timeout: 60000,
   },
 };
 
