@@ -1,5 +1,6 @@
 ﻿import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-ethers";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,30 +13,23 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
-      },
-      evmVersion: "cancun", // Latest EVM version for 0.8.28
-    },
+        runs: 200
+      }
+    }
   },
   networks: {
     u2u_testnet: {
       url: "https://rpc-nebulas-testnet.uniultra.xyz",
       accounts: [PRIVATE_KEY],
       chainId: 2484,
-      timeout: 60000,
-    },
-    localhost: {
-      url: "http://127.0.0.1:8545",
+      gasPrice: 20000000000,
     },
   },
   paths: {
     sources: "./contracts",
     tests: "./test",
     cache: "./cache",
-    artifacts: "./artifacts",
-  },
-  mocha: {
-    timeout: 60000,
+    artifacts: "./artifacts"
   },
 };
 
