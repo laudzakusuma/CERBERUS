@@ -196,9 +196,9 @@ Built for **VietBUILD Hackathon** - demonstrating innovative blockchain security
 
 ## 📞 Contact
 
-- **GitHub**: [@yourusername](https://github.com/yourusername)
-- **Email**: your.email@example.com
-- **Demo**: [Live Demo](https://your-demo-url.vercel.app)
+- **GitHub**: [@laudzakusuma](https://github.com/laudzakusuma)
+- **Email**: laudzaxie@gmail.com
+- **Demo**: soon
 
 ---
 
