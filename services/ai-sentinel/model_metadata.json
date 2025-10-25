@@ -1,0 +1,45 @@
+{
+  "training_date": "2025-10-25T15:59:46.502635",
+  "feature_names": [
+    "value",
+    "gas",
+    "gasPrice",
+    "gasUsed",
+    "nonce",
+    "isContractCreation",
+    "inputLength",
+    "hasInput",
+    "logsCount",
+    "gasEfficiency",
+    "valueDensity",
+    "gasPrice_gwei"
+  ],
+  "models": {
+    "isolation_forest": {
+      "accuracy": 0.9142857142857143,
+      "type": "anomaly_detection"
+    },
+    "random_forest": {
+      "accuracy": 1.0,
+      "type": "classification"
+    },
+    "gradient_boosting": {
+      "accuracy": 1.0,
+      "type": "classification"
+    },
+    "neural_network": {
+      "accuracy": 1.0,
+      "type": "classification"
+    },
+    "ensemble": {
+      "accuracy": 0.0,
+      "type": "ensemble"
+    }
+  },
+  "ensemble_weights": {
+    "isolation_forest": 0.2,
+    "random_forest": 0.3,
+    "gradient_boosting": 0.3,
+    "neural_network": 0.2
+  }
+}

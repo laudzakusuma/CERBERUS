@@ -1,0 +1,11 @@
+{
+  "total_transactions": 172,
+  "malicious_transactions": 1,
+  "normal_transactions": 171,
+  "threat_categories": {
+    "NORMAL": 171,
+    "FRONT_RUNNING": 1
+  },
+  "collection_date": "2025-10-25T15:10:25.106796",
+  "blocks_scanned": 5000
+}
