@@ -1,0 +1,28 @@
+{
+  "timestamp": "2025-10-30T02:34:12.988Z",
+  "checks": {
+    "network": {
+      "status": "OK",
+      "blockNumber": 61850386,
+      "chainId": "2484"
+    },
+    "contract": {
+      "status": "PARTIAL",
+      "error": "missing revert data (action=\"call\", data=null, reason=null, transaction={ \"data\": \"0xdfe6b5d6\", \"to\": \"0x9Dfb525D1448031ab48c4F404b330d781C0B8854\" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.15.0)"
+    },
+    "aiSentinel": {
+      "status": "ERROR",
+      "error": "Prediction endpoint failed"
+    },
+    "wallet": {
+      "status": "OK",
+      "address": "0xfe89f390C1cf3D6b83171D41bEEF4A3E3A763fAE",
+      "balance": "10.0"
+    },
+    "monitor": {
+      "status": "MANUAL_CHECK",
+      "message": "Please verify manually"
+    }
+  },
+  "overallStatus": "CRITICAL"
+}
