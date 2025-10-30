@@ -2,49 +2,19 @@
   "version": 2,
   "builds": [
     {
-      "src": "services/ai-sentinel/advanced_ai_sentinel.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "50mb"
-      }
-    },
-    {
-      "src": "services/mempool-monitor/advanced_monitor.js",
-      "use": "@vercel/node"
-    },
-    {
       "src": "apps/frontend/package.json",
       "use": "@vercel/next"
     }
   ],
   "routes": [
     {
-      "src": "/api/sentinel",
-      "methods": ["GET"],
-      "dest": "/services/ai-sentinel/advanced_ai_sentinel.py"
-    },
-    {
-      "src": "/api/sentinel/predict",
-      "methods": ["POST", "OPTIONS"],
-      "dest": "/services/ai-sentinel/advanced_ai_sentinel.py"
-    },
-    {
-      "src": "/api/monitor",
-      "dest": "/services/mempool-monitor/advanced_monitor.js"
-    },
-    {
-      "src": "/api/monitor/(.*)",
-      "dest": "/services/mempool-monitor/advanced_monitor.js"
-    },
-    {
       "src": "/(.*)",
       "dest": "/apps/frontend/$1"
     }
   ],
   "env": {
-    "NEXT_PUBLIC_CONTRACT_ADDRESS": "0x9Dfb525D1448031ab48c4F404b330d781C0B8854",
+    "NEXT_PUBLIC_CONTRACT_ADDRESS": "0xYOUR_CONTRACT_ADDRESS",
     "NEXT_PUBLIC_U2U_RPC_HTTP": "https://rpc-nebulas-testnet.uniultra.xyz",
-    "NEXT_PUBLIC_AI_API_URL": "/api/sentinel"
-  },
-  "regions": ["sin1"]
+    "NEXT_PUBLIC_AI_API_URL": "https://cerberus-production-b713.up.railway.app"
+  }
 }
