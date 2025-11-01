@@ -118,7 +118,7 @@ NEXT_PUBLIC_U2U_RPC_HTTP=https://rpc-nebulas-testnet.uniultra.xyz
 ## Tech Stack
 
 ### Smart Contracts
-- **Solidity 0.8.19**
+- **Solidity 0.8.28**
 - **Hardhat** untuk development & deployment
 - **OpenZeppelin** untuk security standards
 
