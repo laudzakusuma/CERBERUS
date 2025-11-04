@@ -86,15 +86,15 @@ async function simulateScenario(provider, wallet, scenario, index) {
         console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
         
         const aiPayload = {
-            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(tx))),
-            from: wallet.address,
-            to: tx.to,
-            value: tx.value.toString(),
-            gasPrice: tx.gasPrice.toString(),
-            gasLimit: tx.gasLimit.toString(),
-            data: tx.data,
-            nonce: tx.nonce
-        };
+            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(tx))),
+            from: wallet.address,
+            to: tx.to,
+            value: tx.value.toString(),
+            gasPrice: tx.gasPrice.toString(),
+            gasLimit: tx.gasLimit.toString(),
+            data: tx.data,
+            nonce: tx.nonce.toString()
+        };
 
         const aiResponse = await fetch(AI_API_URL, {
             method: 'POST',
