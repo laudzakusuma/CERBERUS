@@ -94,7 +94,7 @@ cd apps/frontend
 npm run dev
 ```
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -115,10 +115,10 @@ NEXT_PUBLIC_CONTRACT_ADDRESS=your_deployed_contract_address
 NEXT_PUBLIC_U2U_RPC_HTTP=https://rpc-nebulas-testnet.uniultra.xyz
 ```
 
-## 🎨 Tech Stack
+## Tech Stack
 
 ### Smart Contracts
-- **Solidity 0.8.19**
+- **Solidity 0.8.28**
 - **Hardhat** untuk development & deployment
 - **OpenZeppelin** untuk security standards
 
@@ -132,7 +132,7 @@ NEXT_PUBLIC_U2U_RPC_HTTP=https://rpc-nebulas-testnet.uniultra.xyz
 - **Styled-Components** untuk modern UI
 - **Real-time WebSocket** untuk live updates
 
-## 🛡️ Threat Categories
+## Threat Categories
 
 Cerberus dapat mendeteksi berbagai jenis ancaman:
 
@@ -146,16 +146,16 @@ Cerberus dapat mendeteksi berbagai jenis ancaman:
 8. **GOVERNANCE_ATTACK** - Serangan pada governance
 9. **MEV_ABUSE** - Penyalahgunaan MEV
 
-## 📊 Demo
+## Demo
 
 ### Live Detection Example
 
 ```
-🔍 Analyzing: 0xbd9623e0... | Value: 1.0000 U2U
-📊 Danger: 100.0 | Category: FRONT_RUNNING | Malicious: true
-🚨 THREAT DETECTED! Reporting to blockchain...
-📤 Report sent! Tx: 0x0fc59d18...
-✅ Confirmed on block: 59465798
+Analyzing: 0xbd9623e0... | Value: 1.0000 U2U
+Danger: 100.0 | Category: FRONT_RUNNING | Malicious: true
+THREAT DETECTED! Reporting to blockchain...
+Report sent! Tx: 0x0fc59d18...
+Confirmed on block: 59465798
 ```
 
 ### Smart Contract Events
@@ -173,12 +173,12 @@ event ThreatReported(
 );
 ```
 
-## 🔗 Deployed Contracts
+## Deployed Contracts
 
 - **U2U Testnet**: `0xC65f3ec1e0a6853d2e6267CB918E683BA7E4f36c`
 - **Explorer**: [View on U2U Explorer](https://testnet.u2uscan.xyz/address/0xC65f3ec1e0a6853d2e6267CB918E683BA7E4f36c)
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
@@ -186,19 +186,19 @@ event ThreatReported(
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open Pull Request
 
-## 📝 License
+## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-## 🏆 Hackathon
+## Hackathon
 
 Built for **VietBUILD Hackathon** - demonstrating innovative blockchain security solutions on U2U Network.
 
-## 📞 Contact
+## Contact
 
 - **GitHub**: [@laudzakusuma](https://github.com/laudzakusuma)
 - **Email**: laudzaxie@gmail.com
-- **Demo**: soon
+- **Demo**: https://cerberus-watchdog.vercel.app
 
 ---
 
