@@ -1,3 +1,4 @@
+// simulate-threats.js
 import { ethers } from 'ethers';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
@@ -10,6 +11,11 @@ const {
     CONTRACT_ADDRESS,
     AI_API_URL
 } = process.env;
+
+if (!U2U_RPC_HTTP || !DEMO_PRIVATE_KEY || !CONTRACT_ADDRESS || !AI_API_URL) {
+    console.error('❌ Missing required environment variables. Please set U2U_RPC_HTTP, DEMO_PRIVATE_KEY, CONTRACT_ADDRESS, and AI_API_URL');
+    process.exit(1);
+}
 
 // Threat scenarios for demo
 const THREAT_SCENARIOS = [
@@ -26,8 +32,8 @@ const THREAT_SCENARIOS = [
         name: "💣 Flash Loan Attack Simulation",
         gasPrice: ethers.parseUnits("100", "gwei"),
         value: ethers.parseEther("50.0"), // Large value
-        to: "0x0000000000000000000000000000000000000000", // Contract creation
-        data: "0x608060405234801561001057600080fd5b50", // Contract bytecode
+        to: "0x0000000000000000000000000000000000000000", // Contract creation (example)
+        data: "0x608060405234801561001057600080fd5b50", // Contract bytecode (example)
         expectedCategory: "FLASH_LOAN_ATTACK",
         expectedThreatLevel: "CRITICAL"
     },
@@ -36,7 +42,7 @@ const THREAT_SCENARIOS = [
         gasPrice: ethers.parseUnits("30", "gwei"),
         value: ethers.parseEther("0.1"),
         to: null, // Contract creation
-        data: "0x6080604052..." + "dead".repeat(100), // Suspicious bytecode pattern
+        data: "0x6080604052" + "dead".repeat(100), // Suspicious bytecode pattern
         expectedCategory: "HONEY_POT",
         expectedThreatLevel: "MEDIUM"
     },
@@ -45,7 +51,7 @@ const THREAT_SCENARIOS = [
         gasPrice: ethers.parseUnits("80", "gwei"),
         value: ethers.parseEther("25.0"),
         to: "0x1234567890123456789012345678901234567890",
-        data: "0xa9059cbb", // Transfer function
+        data: "0xa9059cbb", // Transfer function selector
         expectedCategory: "RUG_PULL",
         expectedThreatLevel: "HIGH"
     },
@@ -66,42 +72,48 @@ async function simulateScenario(provider, wallet, scenario, index) {
     console.log(`${"=".repeat(60)}`);
 
     try {
-        const tx = {
-            to: scenario.to,
-            value: scenario.value,
-            gasPrice: scenario.gasPrice,
-            gasLimit: 100000,
-            data: scenario.data || "0x",
-            nonce: await provider.getTransactionCount(wallet.address)
-        };
+        // 1. Create transaction object with BigInts
+        const tx = {
+            to: scenario.to,
+            value: scenario.value,
+            gasPrice: scenario.gasPrice,
+            gasLimit: 100000,
+            data: scenario.data || "0x",
+            nonce: await provider.getTransactionCount(wallet.address)
+        };
 
-        console.log(`\n📝 Transaction Details:`);
-        console.log(`   From: ${wallet.address}`);
-        console.log(`   To: ${tx.to || 'CONTRACT CREATION'}`);
-        console.log(`   Value: ${ethers.formatEther(tx.value)} U2U`);
-        console.log(`   Gas Price: ${ethers.formatUnits(tx.gasPrice, 'gwei')} Gwei`);
+        console.log(`\n📝 Transaction Details:`);
+        console.log(`   From: ${wallet.address}`);
+        console.log(`   To: ${tx.to || 'CONTRACT CREATION'}`);
+        console.log(`   Value: ${ethers.formatEther(tx.value)} U2U`);
+        console.log(`   Gas Price: ${ethers.formatUnits(tx.gasPrice, 'gwei')} Gwei`);
 
-        const serializableTx = {
-            to: tx.to,
-            value: tx.value.toString(),
-            gasPrice: tx.gasPrice.toString(),
-            gasLimit: tx.gasLimit.toString(),
-            data: tx.data,
-            nonce: tx.nonce.toString()
-        };
+        // =================================================================
+        // Buat objek yang aman untuk JSON (string)
+        // Ini untuk memperbaiki error "Do not know how to serialize a BigInt"
+        // =================================================================
+        const serializableTx = {
+            to: tx.to,
+            value: tx.value.toString(),
+            gasPrice: tx.gasPrice.toString(),
+            gasLimit: tx.gasLimit.toString(),
+            data: tx.data,
+            nonce: tx.nonce.toString()
+        };
 
-        console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
-        
-        const aiPayload = {
-            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(serializableTx))),
-            from: wallet.address,
-            to: serializableTx.to,
-            value: serializableTx.value,
-            gasPrice: serializableTx.gasPrice,
-            gasLimit: serializableTx.gasLimit,
-            data: serializableTx.data,
-            nonce: serializableTx.nonce
-        };
+        // 2. Send to AI for analysis (before sending to blockchain)
+        console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
+
+        const aiPayload = {
+            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(serializableTx))),
+            from: wallet.address,
+            to: serializableTx.to,
+            value: serializableTx.value,
+            gasPrice: serializableTx.gasPrice,
+            gasLimit: serializableTx.gasLimit,
+            data: serializableTx.data,
+            nonce: serializableTx.nonce
+        };
 
         const aiResponse = await fetch(AI_API_URL, {
             method: 'POST',
@@ -109,21 +121,34 @@ async function simulateScenario(provider, wallet, scenario, index) {
             body: JSON.stringify(aiPayload)
         });
 
-        const aiAnalysis = await aiResponse.json();
+        // defensive parsing
+        let aiAnalysis;
+        try {
+            aiAnalysis = await aiResponse.json();
+        } catch (err) {
+            console.error('❌ Failed to parse AI response as JSON:', err);
+            aiAnalysis = {};
+        }
+
+        // default safe values to avoid crashes
+        const dangerScore = typeof aiAnalysis.danger_score === 'number' ? aiAnalysis.danger_score : (aiAnalysis.danger_score ? Number(aiAnalysis.danger_score) : 0);
+        const threatCategory = aiAnalysis.threat_category || 'UNKNOWN';
+        const isMalicious = !!aiAnalysis.is_malicious;
+        const threatLevel = aiAnalysis.threat_level || 'UNKNOWN';
 
         console.log(`\n📊 AI Analysis Results:`);
-        console.log(`   Danger Score: ${aiAnalysis.danger_score.toFixed(2)}/100`);
-        console.log(`   Category: ${aiAnalysis.threat_category}`);
-        console.log(`   Is Malicious: ${aiAnalysis.is_malicious ? '🚨 YES' : '✅ NO'}`);
-        console.log(`   Threat Level: ${aiAnalysis.threat_level}`);
-        console.log(`   Model Consensus: ${(aiAnalysis.model_consensus * 100).toFixed(1)}%`);
+        console.log(`   Danger Score: ${Number(dangerScore).toFixed(2)}/100`);
+        console.log(`   Category: ${threatCategory}`);
+        console.log(`   Is Malicious: ${isMalicious ? '🚨 YES' : '✅ NO'}`);
+        console.log(`   Threat Level: ${threatLevel}`);
 
         // 3. If malicious, report to smart contract
-        if (aiAnalysis.is_malicious) {
-            console.log(`\n🚨 THREAT DETECTED! Reporting to blockchain...`);
+        if (isMalicious) {
+            console.log(`\n🚨 THREAT DETECTED! Reporting to blockchain (Versi 6 Argumen)...`);
 
+            // ABI yang BENAR dari CerberusAlerts.sol (example single function signature)
             const contractABI = [
-                "function reportThreat(bytes32 _txHash, address _flaggedAddress, address[] _relatedAddresses, uint8 _level, uint8 _category, uint256 _confidenceScore, uint256 _severityScore, string _description) returns (uint256)"
+                "function reportThreat(bytes32 _txHash, address _flaggedAddress, uint8 _level, uint8 _category, uint256 _confidenceScore, bytes32 _modelHash) external"
             ];
 
             const cerberusContract = new ethers.Contract(
@@ -132,7 +157,7 @@ async function simulateScenario(provider, wallet, scenario, index) {
                 wallet
             );
 
-            // Map threat category to enum value
+            // Map Kategori Ancaman (sesuai Enum di CerberusAlerts.sol)
             const categoryMap = {
                 'RUG_PULL': 0,
                 'FLASH_LOAN_ATTACK': 1,
@@ -143,57 +168,64 @@ async function simulateScenario(provider, wallet, scenario, index) {
                 'HONEY_POT': 6,
                 'GOVERNANCE_ATTACK': 7,
                 'MEV_ABUSE': 8,
-                'ANOMALOUS_BEHAVIOR': 9
+                'NORMAL': 9,
+                'UNKNOWN': 255
             };
 
-            const levelMap = {
-                0: 'INFO',
-                1: 'LOW',
-                2: 'MEDIUM',
-                3: 'HIGH',
-                4: 'CRITICAL'
+            // Map Level Ancaman: if your AI returns strings like "CRITICAL", map accordingly
+            const levelMapStr = {
+                'INFO': 0,
+                'MEDIUM': 1,
+                'HIGH': 2,
+                'CRITICAL': 3
             };
 
+            // support both numeric or string threat_level
+            let levelEnum = 2;
+            if (typeof aiAnalysis.threat_level === 'number') {
+                levelEnum = aiAnalysis.threat_level;
+            } else {
+                levelEnum = levelMapStr[(aiAnalysis.threat_level || '').toUpperCase()] ?? 2;
+            }
+
+            const categoryEnum = categoryMap[(threatCategory || '').toUpperCase()] ?? 2; // default FRONT_RUNNING
+
+            // ensure modelHash is bytes32 sized; using encodeBytes32String (ethers v6 helper)
+            const modelHash = (aiAnalysis.threat_signature)
+                ? ethers.encodeBytes32String(String(aiAnalysis.threat_signature).slice(0, 32))
+                : ethers.encodeBytes32String("default_model");
+
+            console.log(`   Mengirim Kategori: ${categoryEnum} (Level: ${levelEnum})`);
+
+            // call reportThreat
             const reportTx = await cerberusContract.reportThreat(
                 aiPayload.hash,
-                wallet.address,
-                [], // relatedAddresses
-                aiAnalysis.threat_level,
-                categoryMap[aiAnalysis.threat_category] || 9,
-                Math.floor(aiAnalysis.danger_score),
-                Math.floor(aiAnalysis.danger_score * 1.2), // severity slightly higher
-                aiAnalysis.threat_signature
+                wallet.address, // flaggedAddress
+                levelEnum, // _level (enum uint8)
+                categoryEnum, // _category (enum uint8)
+                Math.floor(Number(dangerScore)), // _confidenceScore
+                modelHash // _modelHash (bytes32)
             );
 
             console.log(`   📤 Report transaction sent: ${reportTx.hash}`);
             console.log(`   ⏳ Waiting for confirmation...`);
 
             const receipt = await reportTx.wait();
-            
+
             console.log(`   ✅ Threat logged on-chain!`);
             console.log(`   🧾 Block: ${receipt.blockNumber}`);
-            console.log(`   ⛽ Gas Used: ${receipt.gasUsed.toString()}`);
-
-            // Extract alert ID from event
-            const event = receipt.logs[0];
-            console.log(`   🆔 Alert ID: ${event.topics[1]}`);
         } else {
             console.log(`\n✅ Transaction appears safe - No on-chain alert needed`);
         }
 
-        // 4. Optionally send actual transaction (for realism)
-        // console.log(`\n📡 Broadcasting transaction to U2U Network...`);
-        // const sentTx = await wallet.sendTransaction(tx);
-        // console.log(`   Transaction sent: ${sentTx.hash}`);
-
         console.log(`\n✅ Scenario completed successfully!`);
 
-        // Wait between scenarios for dramatic effect
+        // Wait between scenarios
         await new Promise(resolve => setTimeout(resolve, 3000));
 
     } catch (error) {
-        console.error(`\n❌ Error in scenario: ${error.message}`);
-        if (error.data) {
+        console.error(`\n❌ Error in scenario: ${error && error.message ? error.message : error}`);
+        if (error && error.data) {
             console.error(`   Reason: ${error.data}`);
         }
     }
@@ -235,6 +267,12 @@ async function runDemoSequence() {
     console.log(`${"#".repeat(70)}\n`);
 }
 
-runDemoSequence().catch(console.error);
+// Run
+runDemoSequence()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error);
+        process.exit(1);
+    });
 
 export { runDemoSequence, THREAT_SCENARIOS };
