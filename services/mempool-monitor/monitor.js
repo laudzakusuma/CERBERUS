@@ -5,31 +5,41 @@ const fetch = require('node-fetch');
 dotenv.config();
 
 // ============================================
-// CONFIGURATION
+// KONFIGURASI
 // ============================================
 const CONFIG = {
     U2U_RPC_HTTP: process.env.U2U_RPC_HTTP || 'https://rpc-nebulas-testnet.uniultra.xyz',
     CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS,
     AI_API_URL: process.env.AI_API_URL || 'http://127.0.0.1:5001/predict',
-    OWNER_PRIVATE_KEY: process.env.PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY,
+    OWNER_PRIVATE_KEY: process.env.PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY || process.env.MONITOR_PRIVATE_KEY, // Mencari kunci monitor
     POLLING_INTERVAL: 5000,
     BATCH_SIZE: 3,
-    MIN_DANGER_SCORE: 70,
+    MIN_DANGER_SCORE: 70, // Hanya laporkan ancaman di atas skor ini
     ENABLE_BLOCKCHAIN_REPORTING: true,
 };
 
 // ============================================
-// CORRECT CONTRACT ABI (from actual contract)
+// ABI KONTRAK (SUDAH DIUPDATE)
 // ============================================
 const CONTRACT_ABI = [
+    // Fungsi untuk melaporkan ancaman
     "function reportThreat(bytes32 _txHash, address _flaggedAddress, uint8 _level, uint8 _category, uint256 _confidenceScore, bytes32 _modelHash) external",
+    
+    // ============================================
+    // !! PERUBAHAN !!: Menambahkan fungsi baru untuk log transaksi aman
+    // ============================================
+    "function logBenignTransaction(bytes32 _txHash, address _from, address _to) external",
+
+    // Fungsi View
     "function totalAlerts() external view returns (uint256)",
     "function authorizedReporters(address) external view returns (bool)",
+    
+    // Event
     "event ThreatReported(uint256 indexed alertId, bytes32 indexed txHash, address indexed flaggedAddress, uint8 level, uint8 category, uint256 confidenceScore, address reporter, uint256 timestamp, bytes32 modelHash)"
 ];
 
 // ============================================
-// ENUMS (match contract exactly!)
+// ENUMS (sesuai kontrak)
 // ============================================
 const ThreatLevel = {
     INFO: 0,
@@ -60,10 +70,11 @@ const colors = {
     blue: '\x1b[34m',
     magenta: '\x1b[35m',
     cyan: '\x1b[36m',
+    grey: '\x1b[90m' // Warna baru untuk log aman
 };
 
 // ============================================
-// CERBERUS MONITOR - FINAL CORRECT VERSION
+// KELAS MONITOR UTAMA
 // ============================================
 class CerberusMonitorFinal {
     constructor() {
@@ -71,6 +82,7 @@ class CerberusMonitorFinal {
             startTime: Date.now(),
             totalAnalyzed: 0,
             threatsDetected: 0,
+            benignLogged: 0, // Statistik baru
             onChainReports: 0,
             onChainSuccess: 0,
             alreadyReported: 0,
@@ -91,15 +103,15 @@ class CerberusMonitorFinal {
 
     async initialize() {
         this.log('='.repeat(70), 'cyan');
-        this.log('  🐺 CERBERUS MONITOR - FINAL CORRECT VERSION', 'bright');
-        this.log('  ✅ Function: reportThreat() with 6 parameters', 'green');
+        this.log('  🐺 CERBERUS MONITOR - VERSI UPDATE (Log Transaksi Aman)', 'bright');
+        this.log('  ✅ Fungsi: reportThreat() (6 args) + logBenignTransaction() (3 args)', 'green');
         this.log('='.repeat(70), 'cyan');
         
         if (!CONFIG.CONTRACT_ADDRESS) {
             throw new Error('❌ Missing CONTRACT_ADDRESS in .env');
         }
         if (!CONFIG.OWNER_PRIVATE_KEY || CONFIG.OWNER_PRIVATE_KEY.includes('YOUR_')) {
-            throw new Error('❌ Missing PRIVATE_KEY in .env');
+            throw new Error('❌ Missing PRIVATE_KEY/MONITOR_PRIVATE_KEY in .env');
         }
         
         this.log('\n📡 Connecting to U2U Network...', 'cyan');
@@ -114,23 +126,30 @@ class CerberusMonitorFinal {
         ]);
         
         if (contractCode === '0x') {
-            throw new Error('❌ Contract not deployed');
+            throw new Error(`❌ Contract not deployed at ${CONFIG.CONTRACT_ADDRESS}. Please deploy V4.`);
         }
         
         this.log('✅ Blockchain Connected', 'green');
         this.log(`📦 Current Block: ${blockNumber}`, 'blue');
-        this.log(`💳 Wallet: ${this.wallet.address}`, 'blue');
+        this.log(`💳 Wallet Monitor: ${this.wallet.address}`, 'blue');
         this.log(`💰 Balance: ${ethers.formatEther(balance)} U2U`, 'blue');
-        this.log(`📜 Contract: ${CONFIG.CONTRACT_ADDRESS}`, 'blue');
+        this.log(`📜 Contract (V4): ${CONFIG.CONTRACT_ADDRESS}`, 'blue');
         
         try {
             const totalAlerts = await this.contract.totalAlerts();
             this.log(`📊 Total Alerts: ${totalAlerts}`, 'blue');
             
             const isAuthorized = await this.contract.authorizedReporters(this.wallet.address);
-            this.log(`🔐 Authorized: ${isAuthorized ? 'YES ✅' : 'NO (using owner) ⚠️'}`, isAuthorized ? 'green' : 'yellow');
+            if (!isAuthorized) {
+                this.log(`❌ PERINGATAN: Wallet ${this.wallet.address} TIDAK diotorisasi!`, 'red');
+                this.log(`   Jalankan 'node authorize-monitor.js' menggunakan kunci ADMIN Anda.`, 'yellow');
+                throw new Error("Monitor wallet not authorized");
+            }
+            this.log(`🔐 Authorized: YES ✅`, 'green');
+
         } catch (error) {
-            this.log(`⚠️  Cannot read contract: ${error.message}`, 'yellow');
+            this.log(`❌ Gagal memeriksa kontrak. Pastikan ABI sudah benar dan Anda menggunakan alamat V4.`, 'red');
+            throw error;
         }
         
         await this.testAIConnection();
@@ -140,8 +159,7 @@ class CerberusMonitorFinal {
         
         this.log('\n' + '='.repeat(70), 'cyan');
         this.log('✅ INITIALIZATION COMPLETE', 'green');
-        this.log(`🎯 Mode: ${CONFIG.ENABLE_BLOCKCHAIN_REPORTING ? 'FULL' : 'DETECTION ONLY'}`, 'yellow');
-        this.log('🔧 Using: reportThreat() with correct parameters', 'yellow');
+        this.log('🔧 Using: reportThreat() AND logBenignTransaction()', 'yellow');
         this.log('='.repeat(70) + '\n', 'cyan');
     }
 
@@ -163,19 +181,13 @@ class CerberusMonitorFinal {
         process.on('SIGINT', () => this.shutdown());
         process.on('SIGTERM', () => this.shutdown());
         
-        if (CONFIG.ENABLE_BLOCKCHAIN_REPORTING) {
-            this.contract.on('ThreatReported', (alertId, txHash, address, level, category) => {
-                this.log(`\n📢 EVENT: Threat #${alertId} confirmed on-chain!`, 'green');
-                this.log(`   Tx: ${txHash}`, 'dim');
-            });
-        }
+        // (Kita bisa menambahkan listener untuk 'TransactionMonitored' di sini jika perlu)
     }
 
     async start() {
         if (this.isRunning) return;
         this.isRunning = true;
-        
-        this.log('🚀 Starting monitoring loop...\n', 'green');
+        this.log('🚀 Starting monitoring loop (Mode Log Transaksi Aman AKTIF)...\n', 'green');
         
         while (this.isRunning) {
             try {
@@ -248,11 +260,20 @@ class CerberusMonitorFinal {
                 return;
             }
             
+            // ============================================
+            // !! LOGIKA UTAMA DIPERBARUI !!
+            // ============================================
             if (analysis.is_malicious && analysis.danger_score >= CONFIG.MIN_DANGER_SCORE) {
+                
+                // --- INI LOGIKA ANCAMAN (SAMA SEPERTI SEBELUMNYA) ---
                 this.stats.threatsDetected++;
                 await this.handleThreat(tx, analysis);
+
             } else {
-                this.log(`   ✅ ${tx.hash.substring(0, 10)}... - Normal (score: ${analysis.danger_score?.toFixed(0) || 'N/A'})`, 'green');
+                
+                // --- INI LOGIKA BARU UNTUK TRANSAKSI AMAN (METAMASK DLL) ---
+                this.log(`   ✅ ${tx.hash.substring(0, 10)}... - Normal (Score: ${analysis.danger_score?.toFixed(0) || 'N/A'}). Logging...`, 'grey');
+                await this.logBenignToBlockchain(tx);
             }
             
         } catch (error) {
@@ -297,8 +318,6 @@ class CerberusMonitorFinal {
         this.log(`      From: ${tx.from}`, 'yellow');
         this.log(`      Danger Score: ${analysis.danger_score?.toFixed(2) || 'N/A'}`, 'yellow');
         this.log(`      Category: ${analysis.threat_category || 'UNKNOWN'}`, 'yellow');
-        this.log(`      Signature: ${analysis.threat_signature || 'Threat detected'}`, 'yellow');
-        this.log(`      🔗 Explorer: https://testnet.u2uscan.xyz/tx/${tx.hash}`, 'cyan');
         
         if (CONFIG.ENABLE_BLOCKCHAIN_REPORTING) {
             await this.reportToBlockchain(tx, analysis);
@@ -323,7 +342,6 @@ class CerberusMonitorFinal {
             else if (analysis.danger_score > 75) threatLevel = ThreatLevel.HIGH;
             
             // Map threat category
-            let threatCategory = ThreatCategory.MEV_ABUSE;
             const categoryMap = {
                 'RUG_PULL': ThreatCategory.RUG_PULL,
                 'FLASH_LOAN_ATTACK': ThreatCategory.FLASH_LOAN_ATTACK,
@@ -335,25 +353,25 @@ class CerberusMonitorFinal {
                 'GOVERNANCE_ATTACK': ThreatCategory.GOVERNANCE_ATTACK,
                 'MEV_ABUSE': ThreatCategory.MEV_ABUSE,
             };
-            threatCategory = categoryMap[analysis.threat_category] ?? ThreatCategory.MEV_ABUSE;
+            let threatCategory = categoryMap[analysis.threat_category] ?? ThreatCategory.MEV_ABUSE;
             
-            // Create model hash (hash of threat signature)
-            const modelHash = ethers.keccak256(ethers.toUtf8Bytes(analysis.threat_signature || 'threat'));
+            // Create model hash (string pendek < 32 byte)
+            const modelHash = ethers.utils.formatBytes32String("model_v1.0");
             
             // Confidence score (0-100)
             const confidenceScore = Math.floor(analysis.danger_score || 70);
             
-            // Call reportThreat with CORRECT parameters
+            // Panggil reportThreat dengan 6 argumen
             const alertTx = await this.contract.reportThreat(
-                tx.hash,              // bytes32 _txHash
-                tx.from,              // address _flaggedAddress
-                threatLevel,          // uint8 _level (ENUM)
-                threatCategory,       // uint8 _category (ENUM)
-                confidenceScore,      // uint256 _confidenceScore
-                modelHash,            // bytes32 _modelHash
+                tx.hash,                  // bytes32 _txHash
+                tx.from,                  // address _flaggedAddress
+                threatLevel,              // uint8 _level (ENUM)
+                threatCategory,           // uint8 _category (ENUM)
+                confidenceScore,          // uint256 _confidenceScore
+                modelHash,                // bytes32 _modelHash
                 {
                     gasLimit: 500000,
-                    gasPrice: ethers.parseUnits('20', 'gwei')
+                    gasPrice: ethers.utils.parseUnits('20', 'gwei')
                 }
             );
             
@@ -373,15 +391,45 @@ class CerberusMonitorFinal {
             }
             
         } catch (error) {
-            this.log(`      ❌ On-chain error: ${error.message}`, 'red');
-            
-            if (error.message.includes('Alert exists') || 
-                error.message.includes('already reported')) {
+            this.log(`      ❌ On-chain error (reportThreat): ${error.message}`, 'red');
+            if (error.message.includes('Alert exists')) {
                 this.reportedTxs.add(tx.hash);
                 this.stats.alreadyReported++;
-            } else if (error.message.includes('Not authorized')) {
-                this.log(`      💡 Need to authorize wallet or use owner key`, 'yellow');
             }
+        }
+    }
+
+    // ============================================
+    // !! FUNGSI BARU !!
+    // ============================================
+    async logBenignToBlockchain(tx) {
+        try {
+            if (!CONFIG.ENABLE_BLOCKCHAIN_REPORTING) return;
+            if (this.reportedTxs.has(tx.hash)) return; // Jangan log jika sudah dilaporkan
+
+            this.log(`      ✍️  Logging benign tx to contract...`, 'grey');
+            
+            const logTx = await this.contract.logBenignTransaction(
+                tx.hash,
+                tx.from,
+                tx.to || '0x0000000000000000000000000000000000000000',
+                {
+                    gasLimit: 150000, // Gas lebih rendah untuk logging
+                    gasPrice: ethers.utils.parseUnits('10', 'gwei') // Gas price lebih rendah
+                }
+            );
+            
+            this.stats.benignLogged++; // Tambah statistik baru
+            this.reportedTxs.add(tx.hash); // Tandai agar tidak diproses ganda
+            
+            this.log(`      📤 Log tx sent: ${logTx.hash}`, 'grey');
+            
+            // Kita tidak perlu 'await' konfirmasi agar monitor tidak lambat
+            // await logTx.wait(); 
+            // this.log(`      ... Log confirmed.`, 'dim');
+
+        } catch (error) {
+            this.log(`      ❌ On-chain error (logBenign): ${error.message}`, 'yellow');
         }
     }
 
@@ -396,6 +444,7 @@ class CerberusMonitorFinal {
         this.log(`📦 Blocks Processed: ${this.stats.lastBlock}`, 'blue');
         this.log(`🔍 Transactions Analyzed: ${this.stats.totalAnalyzed}`, 'blue');
         this.log(`🚨 Threats Detected: ${this.stats.threatsDetected}`, 'red');
+        this.log(`✍️  Benign Logged: ${this.stats.benignLogged}`, 'grey'); // Statistik baru
         this.log(`📝 On-Chain Reports: ${this.stats.onChainReports}`, 'yellow');
         this.log(`✅ On-Chain Success: ${this.stats.onChainSuccess}`, 'green');
         this.log(`♻️  Already Reported: ${this.stats.alreadyReported}`, 'dim');
@@ -412,7 +461,10 @@ class CerberusMonitorFinal {
         this.log('\n\n🛑 Shutting down gracefully...', 'yellow');
         this.isRunning = false;
         
-        this.contract.removeAllListeners();
+        // Hapus listener untuk mencegah error
+        if (this.contract) {
+            this.contract.removeAllListeners();
+        }
         
         this.printStats();
         
@@ -428,7 +480,7 @@ class CerberusMonitorFinal {
 }
 
 // ============================================
-// MAIN EXECUTION
+// EKSEKUSI UTAMA
 // ============================================
 async function main() {
     console.log(`${colors.green}🚀 Starting Cerberus Monitor (FINAL CORRECT VERSION)...${colors.reset}\n`);
@@ -445,6 +497,7 @@ async function main() {
     }
 }
 
+// Cek apakah file dijalankan langsung
 if (require.main === module) {
     main();
 }

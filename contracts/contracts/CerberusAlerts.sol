@@ -81,6 +81,13 @@ contract CerberusAlerts is Ownable, ReentrancyGuard, Pausable {
         uint256 timestamp,
         bytes32 modelHash
     );
+
+    event TransactionMonitored(
+        bytes32 indexed txHash,
+        address indexed from,
+        address indexed to,
+        uint256 timestamp
+    );
     
     event AlertDeactivated(
         uint256 indexed alertId,
@@ -164,6 +171,24 @@ contract CerberusAlerts is Ownable, ReentrancyGuard, Pausable {
             msg.sender,
             block.timestamp,
             _modelHash
+        );
+    }
+
+    /**
+    * @dev Mencatat transaksi aman (benign) untuk ditampilkan di dashboard
+    */
+    function logBenignTransaction(
+        bytes32 _txHash,
+        address _from,
+        address _to
+    ) external onlyAuthorized whenNotPaused nonReentrant {
+        require(_txHash != bytes32(0), "Invalid tx hash");
+
+        emit TransactionMonitored(
+            _txHash,
+            _from,
+            _to,
+            block.timestamp
         );
     }
     
