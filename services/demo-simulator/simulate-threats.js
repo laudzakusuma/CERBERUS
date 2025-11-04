@@ -85,7 +85,7 @@ async function simulateScenario(provider, wallet, scenario, index) {
         // 2. Send to AI for analysis (before sending to blockchain)
         console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
         
-        const aiPayload = {
+        const aiPayload = {
             hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(tx))),
             from: wallet.address,
             to: tx.to,
