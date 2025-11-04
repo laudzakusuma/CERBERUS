@@ -238,6 +238,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         });
 }
 
-runSimulation().catch(console.error);
+main().catch(console.error);
 
 export { runDemoSequence, THREAT_SCENARIOS };
