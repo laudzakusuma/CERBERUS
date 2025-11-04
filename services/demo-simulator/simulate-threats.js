@@ -190,10 +190,11 @@ async function simulateScenario(provider, wallet, scenario, index) {
 
             const categoryEnum = categoryMap[(threatCategory || '').toUpperCase()] ?? 2; // default FRONT_RUNNING
 
-            // ensure modelHash is bytes32 sized; using encodeBytes32String (ethers v6 helper)
-            const modelHash = (aiAnalysis.threat_signature)
-                ? ethers.encodeBytes32String(String(aiAnalysis.threat_signature).slice(0, 32))
-                : ethers.encodeBytes32String("default_model");
+            // =================================================================
+            // PERBAIKAN: Gunakan string pendek (DI BAWAH 32 char)
+            // Ini untuk memperbaiki error "bytes32 string must be less than 32 bytes"
+            // =================================================================
+            const modelHash = ethers.encodeBytes32String("model_v1.0");
 
             console.log(`   Mengirim Kategori: ${categoryEnum} (Level: ${levelEnum})`);
 
