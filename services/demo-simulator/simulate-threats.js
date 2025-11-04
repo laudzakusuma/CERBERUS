@@ -66,34 +66,41 @@ async function simulateScenario(provider, wallet, scenario, index) {
     console.log(`${"=".repeat(60)}`);
 
     try {
-        // 1. Create transaction
-        const tx = {
-            to: scenario.to,
-            value: scenario.value,
-            gasPrice: scenario.gasPrice,
-            gasLimit: 100000,
-            data: scenario.data || "0x",
-            nonce: await provider.getTransactionCount(wallet.address)
-        };
+        const tx = {
+            to: scenario.to,
+            value: scenario.value,
+            gasPrice: scenario.gasPrice,
+            gasLimit: 100000,
+            data: scenario.data || "0x",
+            nonce: await provider.getTransactionCount(wallet.address)
+        };
 
-        console.log(`\n📝 Transaction Details:`);
-        console.log(`   From: ${wallet.address}`);
-        console.log(`   To: ${tx.to || 'CONTRACT CREATION'}`);
-        console.log(`   Value: ${ethers.formatEther(tx.value)} U2U`);
-        console.log(`   Gas Price: ${ethers.formatUnits(tx.gasPrice, 'gwei')} Gwei`);
+        console.log(`\n📝 Transaction Details:`);
+        console.log(`   From: ${wallet.address}`);
+        console.log(`   To: ${tx.to || 'CONTRACT CREATION'}`);
+        console.log(`   Value: ${ethers.formatEther(tx.value)} U2U`);
+        console.log(`   Gas Price: ${ethers.formatUnits(tx.gasPrice, 'gwei')} Gwei`);
 
-        // 2. Send to AI for analysis (before sending to blockchain)
-        console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
-        
-        const aiPayload = {
-            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(tx))),
-            from: wallet.address,
+        const serializableTx = {
             to: tx.to,
             value: tx.value.toString(),
             gasPrice: tx.gasPrice.toString(),
             gasLimit: tx.gasLimit.toString(),
             data: tx.data,
             nonce: tx.nonce.toString()
+        };
+
+        console.log(`\n🤖 Sending to AI Sentinel for analysis...`);
+        
+        const aiPayload = {
+            hash: ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(serializableTx))),
+            from: wallet.address,
+            to: serializableTx.to,
+            value: serializableTx.value,
+            gasPrice: serializableTx.gasPrice,
+            gasLimit: serializableTx.gasLimit,
+            data: serializableTx.data,
+            nonce: serializableTx.nonce
         };
 
         const aiResponse = await fetch(AI_API_URL, {
