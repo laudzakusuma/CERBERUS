@@ -228,14 +228,13 @@ async function runDemoSequence() {
     console.log(`${"#".repeat(70)}\n`);
 }
 
-// Run if called directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-    runDemoSequence()
-        .then(() => process.exit(0))
-        .catch((error) => {
-            console.error(error);
-            process.exit(1);
-        });
+    runDemoSequence()
+        .then(() => process.exit(0))
+        .catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
 }
 
 export { runDemoSequence, THREAT_SCENARIOS };
